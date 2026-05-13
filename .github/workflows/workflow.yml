@@ -1,0 +1,20 @@
+name: workflow-shell
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Preparing Environment
+        run: |
+          chmod +x scripts/setup.sh
+          chmod +x scripts/run.sh
+          ./scripts/setup.sh
+
+      - name: Running Workspace
+        run: ./scripts/run.sh
