@@ -1,7 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-cd /home/raihan/workflow-shell
+# Resolve repo root relative to this script
+WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cd "$WORKDIR"
 
 # Kill any existing node process running our server
 pkill -f "node backend/server.js" 2>/dev/null || true
@@ -10,6 +13,8 @@ sleep 1
 echo "=========================================="
 echo "  Starting Workflow Shell"
 echo "=========================================="
+echo "Working directory: $WORKDIR"
+echo ""
 
 # Start the backend server in background
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
@@ -23,7 +28,7 @@ for i in {1..10}; do
     echo "Server is ready!"
     break
   fi
-  if [ $i -eq 10 ]; then
+  if [ "$i" -eq 10 ]; then
     echo "Server failed to start. Check /tmp/workflow-shell.log"
     exit 1
   fi
@@ -41,8 +46,8 @@ sleep 5
 
 echo ""
 echo "=========================================="
-echo "  ✅ Workflow Shell is running!"
+echo "  Workflow Shell is running!"
 echo "=========================================="
 echo ""
 echo "Tunnel log:"
-wait $TUNNEL_PID
+wait "$TUNNEL_PID"
