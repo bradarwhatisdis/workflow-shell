@@ -11,7 +11,10 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
-const WORKSPACE = '/home/runner/work';
+
+// Derive workspace dynamically: WORKSPACE_DIR env var > HOME/work > cwd
+const HOME = process.env.HOME || require('os').homedir();
+const WORKSPACE = process.env.WORKSPACE_DIR || path.join(HOME, 'work');
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -21,7 +24,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 function getSafePath(reqPath) {
   if (!reqPath) return path.resolve(WORKSPACE);
-  const fullPath = path.resolve(WORKSPACE, reqPath);
+  // Normalize: strip leading slash for safe joining
+  const clean = reqPath.startsWith('/') ? reqPath.slice(1) : reqPath;
+  const fullPath = path.resolve(WORKSPACE, clean || '.');
   if (!fullPath.startsWith(path.resolve(WORKSPACE))) return null;
   return fullPath;
 }
@@ -50,7 +55,8 @@ app.get('/api/files', (req, res) => {
       if (!a.isDirectory && b.isDirectory) return 1;
       return a.name.localeCompare(b.name);
     });
-    res.json({ path: req.query.path || '/', items });
+    const relPath = path.relative(WORKSPACE, dir);
+    res.json({ path: relPath === '' ? '/' : '/' + relPath, items });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -138,6 +144,12 @@ app.get('/api/download', (req, res) => {
   }
 });
 
+// ─── Health check ────────────────────────────────────────────────────────────
+
+app.get('/api/cwd', (req, res) => {
+  res.json({ cwd: WORKSPACE });
+});
+
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws) => {
@@ -175,4 +187,5 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('workflow-shell running on port ' + PORT);
+  console.log('Workspace: ' + WORKSPACE);
 });

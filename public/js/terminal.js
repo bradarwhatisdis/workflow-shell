@@ -1,16 +1,16 @@
 // ─── Terminal Setup ────────────────────────────────────
 
 (function() {
-  const Terminal = window.Terminal;
-  const FitAddon = window.FitAddon;
+  var Terminal = window.Terminal;
+  var FitAddon = window.FitAddon;
 
-  if (!Terminal || !FitAddon) {
-    console.error('xterm.js or FitAddon not loaded');
+  if (!Terminal) {
+    console.error('xterm.js not loaded — check CDN scripts in index.html');
     return;
   }
 
-  const term = new Terminal({
-    fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, "Courier New", monospace',
+  var term = new Terminal({
+    fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
     fontSize: 13,
     cursorBlink: true,
     scrollback: 10000,
@@ -38,31 +38,57 @@
     },
   });
 
-  const fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
+  // Try different FitAddon constructors (CDN UMD vs ES module)
+  var fitAddon;
+  if (FitAddon && FitAddon.FitAddon) {
+    fitAddon = new FitAddon.FitAddon();
+  } else if (FitAddon) {
+    fitAddon = new FitAddon();
+  } else {
+    // Fallback: use internal fit handler
+    fitAddon = { fit: function() {} };
+    term.fit = function() {
+      // Manual resize to container
+      var cols = Math.max(40, Math.floor((term.element.offsetWidth - 10) / 9));
+      var rows = Math.max(20, Math.floor((term.element.offsetHeight - 4) / 19));
+      term.resize(cols, rows);
+    };
+    console.warn('FitAddon not found, using manual fit fallback');
+  }
+  if (fitAddon.fit) term.loadAddon(fitAddon);
 
-  const container = document.getElementById('terminal-container');
+  var container = document.getElementById('terminal-container');
+  if (!container) {
+    console.error('Terminal container #terminal-container not found');
+    return;
+  }
   term.open(container);
-  fitAddon.fit();
+
+  // Initial fit
+  setTimeout(function() {
+    try { term.fit(); } catch(e) { console.warn('FitAddon error:', e); }
+  }, 50);
 
   // ─── WebSocket Connection ──────────────────────────
 
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(protocol + '//' + location.host);
+  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(protocol + '//' + location.host);
 
-  let termReady = false;
-  const buffer = [];
+  var termReady = false;
+  var buffer = [];
 
   ws.onopen = function() {
     termReady = true;
-    buffer.forEach(function(msg) { ws.send(JSON.stringify(msg)); });
-    buffer.length = 0;
+    for (var i = 0; i < buffer.length; i++) {
+      ws.send(JSON.stringify(buffer[i]));
+    }
+    buffer = [];
     term.focus();
-    fitAddon.fit();
+    try { term.fit(); } catch(e) {}
   };
 
   ws.onmessage = function(event) {
-    const msg = JSON.parse(event.data);
+    var msg = JSON.parse(event.data);
     if (msg.type === 'output') {
       term.write(msg.data);
     } else if (msg.type === 'exit') {
@@ -78,7 +104,7 @@
   // ─── Terminal → Server ─────────────────────────────
 
   term.onData(function(data) {
-    const msg = { type: 'input', data: data };
+    var msg = { type: 'input', data: data };
     if (termReady) {
       ws.send(JSON.stringify(msg));
     } else {
@@ -94,11 +120,15 @@
 
   // ─── Fit on resize ─────────────────────────────────
 
+  var resizeTimer;
   window.addEventListener('resize', function() {
-    try { fitAddon.fit(); } catch(e) {}
-    if (termReady && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-    }
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      try { term.fit(); } catch(e) {}
+      if (termReady && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    }, 100);
   });
 
   // ─── Focus terminal on click ────────────────────────
