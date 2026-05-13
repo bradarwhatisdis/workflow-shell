@@ -1,0 +1,16 @@
+{
+  "name": "workflow-shell",
+  "version": "1.0.0",
+  "description": "Web-based terminal and file manager for GitHub Actions runners",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "node-pty": "^1.1.0",
+    "multer": "^1.4.5-lts.1",
+    "cors": "^2.8.5"
+  }
+}

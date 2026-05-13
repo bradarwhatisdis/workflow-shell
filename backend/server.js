@@ -1,0 +1,178 @@
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const pty = require('node-pty');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+const PORT = process.env.PORT || 8080;
+const WORKSPACE = '/home/runner/work';
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function getSafePath(reqPath) {
+  if (!reqPath) return path.resolve(WORKSPACE);
+  const fullPath = path.resolve(WORKSPACE, reqPath);
+  if (!fullPath.startsWith(path.resolve(WORKSPACE))) return null;
+  return fullPath;
+}
+
+// ─── File Manager API ──────────────────────────────────────────────────────
+
+app.get('/api/files', (req, res) => {
+  try {
+    const dir = getSafePath(req.query.path);
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      return res.status(404).json({ error: 'Directory not found' });
+    }
+    const items = fs.readdirSync(dir, { withFileTypes: true });
+    const files = items.map(item => {
+      const full = path.join(dir, item.name);
+      const stat = fs.statSync(full);
+      return {
+        name: item.name,
+        isDirectory: item.isDirectory(),
+        size: stat.isFile() ? stat.size : 0,
+        modified: stat.mtime.toISOString(),
+      };
+    });
+    files.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    res.json({ path: req.query.path || '/', items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/file', (req, res) => {
+  try {
+    const filePath = getSafePath(req.query.path);
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.json({ content, name: path.basename(filePath) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/file', (req, res) => {
+  try {
+    const filePath = getSafePath(req.query.path);
+    if (!filePath) return res.status(400).json({ error: 'Invalid path' });
+
+    if (req.body._isDir) {
+      if (!fs.existsSync(filePath)) fs.mkdirSync(filePath, { recursive: true });
+      return res.json({ success: true });
+    }
+
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, req.body.content || '', 'utf-8');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/upload', (req, res) => {
+  try {
+    const uploadDir = getSafePath(req.body.path || '/');
+    if (!uploadDir) return res.status(400).json({ error: 'Invalid path' });
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+    const storage = multer.diskStorage({
+      destination: (req, file, cb) => cb(null, uploadDir),
+      filename: (req, file, cb) => cb(null, file.originalname),
+    });
+    const upload = multer({ storage }).single('file');
+    upload(req, res, (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, filename: req.file.originalname });
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/file', (req, res) => {
+  try {
+    const filePath = getSafePath(req.query.path);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      fs.rmSync(filePath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(filePath);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/download', (req, res) => {
+  try {
+    const filePath = getSafePath(req.query.path);
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    res.download(filePath);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Terminal WebSocket ────────────────────────────────────────────────────
+
+wss.on('connection', (ws) => {
+  const ptyProcess = pty.spawn('/bin/bash', [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 30,
+    cwd: WORKSPACE,
+    env: { ...process.env, TERM: 'xterm-256color', HOME: '/home/runner' },
+  });
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.type === 'input') ptyProcess.write(msg.data);
+      else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
+    } catch (e) { /* ignore malformed messages */ }
+  });
+
+  ptyProcess.onData((data) => {
+    try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {}
+  });
+
+  ptyProcess.onExit(() => {
+    try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {}
+    try { ws.close(); } catch (e) {}
+  });
+
+  ws.on('close', () => {
+    try { ptyProcess.kill(); } catch (e) {}
+  });
+});
+
+// ─── Start ─────────────────────────────────────────────────────────────────
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('workflow-shell running on port ' + PORT);
+});

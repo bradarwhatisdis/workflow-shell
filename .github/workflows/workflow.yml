@@ -6,15 +6,21 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: workflow-shell
+      cancel-in-progress: false
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Preparing Environment
+      - name: Setup Environment
         run: |
           chmod +x scripts/setup.sh
           chmod +x scripts/run.sh
           ./scripts/setup.sh
 
-      - name: Running Workspace
+      - name: Run Workspace Shell
+        timeout-minutes: 25
         run: ./scripts/run.sh

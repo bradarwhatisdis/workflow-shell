@@ -1,13 +1,48 @@
 #!/bin/bash
+set -euo pipefail
 
-echo "Starting ttyd on port 8080..."
-ttyd -p 8080 bash &
+cd /home/raihan/workflow-shell
+
+# Kill any existing node process running our server
+pkill -f "node backend/server.js" 2>/dev/null || true
 sleep 1
 
-echo "Starting FileManager on port 8081 without authentication..."
-filebrowser -p 8081 -r /home/runner/work/ --noauth &
-sleep 5 #waiting for services to properly start
+echo "=========================================="
+echo "  Starting Workflow Shell"
+echo "=========================================="
 
-echo "---------------------------------------------------"
-echo "CLICK THIS LINK BELOW TO ACCESS YOUR WEB :"
-ssh -o StrictHostKeyChecking=no -p 443 -R 80:localhost:8080 a.pinggy.io
+# Start the backend server in background
+nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
+SERVER_PID=$!
+echo "Server PID: $SERVER_PID"
+
+# Wait for server to be ready
+echo "Waiting for server to start..."
+for i in {1..10}; do
+  if curl -s http://localhost:8080/api/cwd > /dev/null 2>&1; then
+    echo "Server is ready!"
+    break
+  fi
+  if [ $i -eq 10 ]; then
+    echo "Server failed to start. Check /tmp/workflow-shell.log"
+    exit 1
+  fi
+  sleep 1
+done
+
+# Start tunnel via pinggy.io
+echo ""
+echo "Starting tunnel via pinggy.io..."
+echo "Tunnel logs:"
+ssh -o StrictHostKeyChecking=no -p 443 -R 80:localhost:8080 a.pinggy.io &
+TUNNEL_PID=$!
+
+sleep 5
+
+echo ""
+echo "=========================================="
+echo "  ✅ Workflow Shell is running!"
+echo "=========================================="
+echo ""
+echo "Tunnel log:"
+wait $TUNNEL_PID

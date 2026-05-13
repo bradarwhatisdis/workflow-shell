@@ -1,12 +1,40 @@
 #!/bin/bash
+set -euo pipefail
 
-echo "--- Installing Dependencies ---"
-sudo apt-get update
-sudo apt-get install -y ttyd tmux
-sleep 1
+WORKDIR="/home/raihan/workflow-shell"
 
-echo "--- Installing FileBrowser ---"
-curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
-sleep 1
+echo "=========================================="
+echo "  Workflow Shell Setup"
+echo "=========================================="
 
-echo "--- Setup is done! ---"
+# ─── Check if Node.js is already installed ─────────────────────
+if command -v node &>/dev/null; then
+  NODE_VER=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+  echo "Node.js v$(node -v) already installed (major: $NODE_VER)"
+  if [ "$NODE_VER" -lt 18 ]; then
+    echo "Node.js 18+ required. Installing NodeSource..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  fi
+else
+  echo "Installing Node.js 20.x..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+fi
+
+echo "Node.js version: $(node -v)"
+echo "npm version: $(npm -v)"
+
+# ─── Install backend dependencies ──────────────────────────────
+cd "$WORKDIR"
+
+if [ ! -d "backend/node_modules" ]; then
+  echo "Installing backend dependencies..."
+  cd backend && npm install && cd ..
+else
+  echo "Backend dependencies already installed."
+fi
+
+echo ""
+echo "--- Setup is complete! ---"
+echo "Run: ./scripts/run.sh"
