@@ -10,165 +10,253 @@
 </head>
 <body>
 
-  <!-- Top Bar -->
-  <div class="topbar">
+<div class="app-container">
+
+  <header class="topbar">
     <div class="topbar-left">
-      <i class="fas fa-terminal topbar-icon"></i>
+      <div class="topbar-logo">
+        <i class="fas fa-terminal"></i>
+      </div>
       <span class="topbar-title">Workflow Shell</span>
+      <span class="topbar-badge">v1.0</span>
+    </div>
+    <div class="topbar-center">
+      <nav class="breadcrumb" id="breadcrumb"></nav>
     </div>
     <div class="topbar-right">
-      <span class="cwd-display" id="cwd-display"><i class="fas fa-folder"></i> /home/runner/work</span>
+      <div class="search-toggle" id="search-toggle" title="Search files (Ctrl+F)">
+        <i class="fas fa-search"></i>
+      </div>
+      <button class="topbar-btn" id="refresh-btn" title="Refresh (Ctrl+R)">
+        <i class="fas fa-arrows-rotate"></i>
+      </button>
       <button class="topbar-btn" id="upload-btn" title="Upload file">
         <i class="fas fa-upload"></i>
       </button>
-      <button class="topbar-btn" id="new-file-btn" title="New file">
+      <button class="topbar-btn" id="new-file-btn" title="New file (Ctrl+N)">
         <i class="fas fa-file-circle-plus"></i>
       </button>
       <button class="topbar-btn" id="new-dir-btn" title="New folder">
         <i class="fas fa-folder-plus"></i>
       </button>
-      <button class="topbar-btn" id="refresh-btn" title="Refresh">
-        <i class="fas fa-arrows-rotate"></i>
+      <div class="topbar-divider"></div>
+      <button class="topbar-btn view-toggle-btn" id="view-toggle" title="Toggle view">
+        <i class="fas fa-list"></i>
+      </button>
+      <button class="topbar-btn" id="help-btn" title="Keyboard shortcuts (?)">
+        <i class="fas fa-keyboard"></i>
       </button>
     </div>
-  </div>
+  </header>
 
-  <!-- Main Content -->
   <div class="main-container">
-    <!-- Left Pane: File Manager -->
-    <div class="pane file-pane" id="file-pane">
+
+    <aside class="pane file-pane" id="file-pane">
       <div class="pane-header">
-        <i class="fas fa-folder-open"></i>
-        <span>Files</span>
+        <span><i class="fas fa-folder-open"></i> Files</span>
+        <div class="pane-header-actions">
+          <button class="pane-header-btn" id="sort-btn" title="Sort options">
+            <i class="fas fa-arrow-down-wide-short"></i>
+          </button>
+          <span class="file-count-badge" id="file-count-badge"></span>
+        </div>
       </div>
-      <div class="breadcrumb" id="breadcrumb">
-        <span class="breadcrumb-item active" data-path="">work</span>
+
+      <div class="file-toolbar" id="file-toolbar" style="display:none">
+        <div class="search-box" id="search-box">
+          <i class="fas fa-search search-icon"></i>
+          <input type="text" id="search-input" placeholder="Filter files..." spellcheck="false">
+          <button class="search-clear" id="search-clear"><i class="fas fa-times-circle"></i></button>
+        </div>
+        <div class="sort-bar" id="sort-bar" style="display:none">
+          <button class="sort-option active" data-sort="name"><i class="fas fa-sort-alpha-down"></i> Name</button>
+          <button class="sort-option" data-sort="size"><i class="fas fa-sort-numeric-down"></i> Size</button>
+          <button class="sort-option" data-sort="date"><i class="fas fa-sort-amount-down"></i> Date</button>
+        </div>
       </div>
+
       <div class="file-list-container">
         <ul class="file-list" id="file-list"></ul>
+        <div class="file-list-status" id="file-list-status">
+          <div class="file-skeleton" id="file-skeleton">
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+          </div>
+        </div>
       </div>
-    </div>
+    </aside>
 
-    <!-- Resizer -->
     <div class="resizer" id="resizer"></div>
 
-    <!-- Right Pane: Terminal -->
-    <div class="pane terminal-pane" id="terminal-pane">
+    <main class="pane terminal-pane" id="terminal-pane">
       <div class="pane-header">
-        <i class="fas fa-terminal"></i>
-        <span>Terminal</span>
-        <div class="terminal-tabs">
-          <span class="tab active" data-session="0">bash</span>
-        </div>
+        <span><i class="fas fa-terminal"></i> Terminal</span>
+        <span class="terminal-status" id="terminal-status">
+          <span class="status-dot connected"></span> Connected
+        </span>
       </div>
       <div class="terminal-container" id="terminal-container"></div>
-    </div>
-  </div>
+    </main>
 
-  <!-- Upload Modal -->
-  <div class="modal-overlay" id="upload-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3><i class="fas fa-upload"></i> Upload File</h3>
-        <button class="modal-close" id="upload-modal-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="dropzone" id="dropzone">
-          <i class="fas fa-cloud-arrow-up fa-3x"></i>
-          <p>Drag & drop files here or <span class="browse-link">browse</span></p>
-          <input type="file" id="file-input" multiple hidden>
-        </div>
-        <div class="upload-progress" id="upload-progress" style="display:none;">
-          <div class="progress-bar">
-            <div class="progress-fill" id="progress-fill"></div>
-          </div>
-          <span class="progress-text" id="progress-text">Uploading...</span>
-        </div>
-      </div>
-    </div>
   </div>
+</div>
 
-  <!-- Editor Modal -->
-  <div class="modal-overlay" id="editor-modal">
-    <div class="modal editor-modal">
-      <div class="modal-header">
-        <h3><i class="fas fa-code"></i> <span id="editor-filename">file.txt</span></h3>
-        <div class="modal-header-actions">
-          <button class="btn btn-save" id="editor-save"><i class="fas fa-save"></i> Save</button>
-          <button class="modal-close" id="editor-modal-close">&times;</button>
+<nav class="context-menu" id="context-menu">
+  <div class="context-menu-item" data-action="open"><i class="fas fa-folder-open"></i> Open</div>
+  <div class="context-menu-item" data-action="edit"><i class="fas fa-pen-to-square"></i> Edit</div>
+  <div class="context-menu-item" data-action="rename"><i class="fas fa-pencil"></i> Rename</div>
+  <div class="context-menu-item" data-action="download"><i class="fas fa-download"></i> Download</div>
+  <div class="context-menu-item" data-action="copy-path"><i class="fas fa-link"></i> Copy Path</div>
+  <div class="context-menu-separator"></div>
+  <div class="context-menu-item danger" data-action="delete"><i class="fas fa-trash"></i> Delete</div>
+</nav>
+
+<div class="modal-overlay" id="upload-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3><i class="fas fa-upload"></i> Upload Files</h3>
+      <button class="modal-close" id="upload-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">
+          <i class="fas fa-cloud-arrow-up"></i>
         </div>
+        <p>Drag & drop files here</p>
+        <span class="dropzone-hint">or click to browse</span>
+        <input type="file" id="file-input" multiple hidden>
       </div>
-      <div class="modal-body">
-        <div id="editor"></div>
+      <div class="upload-progress" id="upload-progress" style="display:none;">
+        <div class="progress-item" id="progress-items"></div>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- New File Modal -->
-  <div class="modal-overlay" id="newfile-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <h3><i class="fas fa-file-circle-plus"></i> New File/Folder</h3>
-        <button class="modal-close" id="newfile-modal-close">&times;</button>
+<div class="modal-overlay" id="editor-modal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3><i class="fas fa-code"></i> <span id="editor-filename">file.txt</span></h3>
+      <div class="modal-header-actions">
+        <span class="editor-save-hint"><kbd>Ctrl+S</kbd></span>
+        <button class="btn btn-primary btn-sm" id="editor-save"><i class="fas fa-save"></i> Save</button>
+        <button class="modal-close" id="editor-modal-close">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label>Name:</label>
-          <input type="text" id="newfile-name" placeholder="filename.txt or folder/">
-        </div>
-        <div class="form-group">
-          <label>Type:</label>
-          <select id="newfile-type">
-            <option value="file">File</option>
-            <option value="directory">Directory</option>
-          </select>
-        </div>
+    </div>
+    <div class="modal-body">
+      <div id="editor"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newfile-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3><i class="fas fa-file-circle-plus"></i> New File / Folder</h3>
+      <button class="modal-close" id="newfile-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label><i class="fas fa-tag"></i> Name</label>
+        <input type="text" id="newfile-name" placeholder="filename.txt or foldername/" spellcheck="false">
       </div>
-      <div class="modal-footer">
-        <button class="modal-close btn btn-cancel">Cancel</button>
-        <button class="btn btn-primary" id="newfile-submit">Create</button>
+      <div class="form-group">
+        <label><i class="fas fa-cube"></i> Type</label>
+        <select id="newfile-type">
+          <option value="file">File</option>
+          <option value="directory">Directory</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Cancel</button>
+      <button class="btn btn-primary" id="newfile-submit">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rename-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3><i class="fas fa-pencil"></i> Rename</h3>
+      <button class="modal-close" id="rename-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label><i class="fas fa-tag"></i> New name</label>
+        <input type="text" id="rename-input" spellcheck="false">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Cancel</button>
+      <button class="btn btn-primary" id="rename-submit">Rename</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3><i class="fas fa-triangle-exclamation"></i> Confirm</h3>
+      <button class="modal-close" id="confirm-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-text">Are you sure?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Cancel</button>
+      <button class="btn btn-danger" id="confirm-action">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="help-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h3>
+      <button class="modal-close" id="help-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="shortcuts-list">
+        <div class="shortcut"><kbd>Ctrl+F</kbd><span>Search / filter files</span></div>
+        <div class="shortcut"><kbd>Ctrl+N</kbd><span>New file</span></div>
+        <div class="shortcut"><kbd>Ctrl+R</kbd><span>Refresh file list</span></div>
+        <div class="shortcut"><kbd>F2</kbd><span>Rename selected</span></div>
+        <div class="shortcut"><kbd>Delete</kbd><span>Delete selected</span></div>
+        <div class="shortcut"><kbd>Esc</kbd><span>Close modal / search</span></div>
+        <div class="shortcut"><kbd>?</kbd><span>Toggle this help</span></div>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- Confirm Modal -->
-  <div class="modal-overlay" id="confirm-modal">
-    <div class="modal confirm-modal">
-      <div class="modal-header">
-        <h3><i class="fas fa-triangle-exclamation"></i> Confirm</h3>
-        <button class="modal-close" id="confirm-modal-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p id="confirm-text">Are you sure?</p>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-close btn btn-cancel">Cancel</button>
-        <button class="btn btn-danger" id="confirm-action">Delete</button>
-      </div>
-    </div>
+<div class="toast-container" id="toast-container"></div>
+
+<div class="full-page-dropzone" id="full-page-dropzone">
+  <div class="full-page-dropzone-content">
+    <i class="fas fa-cloud-arrow-up"></i>
+    <p>Drop files anywhere to upload</p>
   </div>
+</div>
 
-  <!-- Toast Container -->
-  <div class="toast-container" id="toast-container"></div>
-
-  <!-- Scripts -->
-  <script src="/vendor/xterm/lib/xterm.js"></script>
-  <script src="/vendor/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-palenight.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/json/json.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
-  <script src="/js/utils.js"></script>
-  <script src="/js/app.js"></script>
-  <script src="/js/terminal.js"></script>
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-palenight.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/json/json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/terminal.js"></script>
+<script src="/js/app.js"></script>
 
 </body>
 </html>
