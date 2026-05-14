@@ -84,7 +84,10 @@
   // ─── WebSocket Connection ──────────────────────────
 
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(protocol + '//' + location.host);
+  var token = localStorage.getItem('wfs-session-token') || '';
+  var wsUrl = protocol + '//' + location.host;
+  if (token) wsUrl += '?token=' + encodeURIComponent(token);
+  var ws = new WebSocket(wsUrl);
 
   var termReady = false;
   var buffer = [];

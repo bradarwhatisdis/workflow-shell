@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflow Shell - Login</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: none;
+    }
+    .login-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+      animation: appFadeIn 0.5s var(--ease-out);
+      width: 100%;
+      max-width: 380px;
+      padding: 20px;
+    }
+    .login-logo {
+      width: 56px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-grad);
+      border-radius: var(--radius-xl);
+      color: white;
+      font-size: 1.6rem;
+      box-shadow: 0 4px 20px rgba(124, 92, 252, 0.3);
+      transition: box-shadow 0.3s var(--ease);
+    }
+    .login-logo:hover {
+      box-shadow: 0 6px 28px rgba(124, 92, 252, 0.45);
+    }
+    .login-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      text-align: center;
+    }
+    .login-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: -20px;
+    }
+    .login-card {
+      width: 100%;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 28px 24px;
+      box-shadow: var(--shadow-lg);
+      transition: background 0.3s var(--ease), border-color 0.3s var(--ease);
+    }
+    .login-card .form-group {
+      margin-bottom: 18px;
+    }
+    .login-card .form-group:last-of-type {
+      margin-bottom: 22px;
+    }
+    .login-card .form-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 7px;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .login-card .form-group label i {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .login-card .form-group input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+      font-family: var(--font-sans);
+    }
+    .login-card .form-group input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-subtle);
+    }
+    .login-card .form-group input::placeholder {
+      color: var(--text-muted);
+    }
+    .login-btn {
+      width: 100%;
+      padding: 10px 20px;
+      background: var(--accent-grad);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s var(--ease-bounce);
+      box-shadow: 0 2px 12px rgba(124, 92, 252, 0.25);
+      font-family: var(--font-sans);
+    }
+    .login-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(124, 92, 252, 0.35);
+    }
+    .login-btn:active {
+      transform: translateY(0) scale(0.97);
+    }
+    .login-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .login-error {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--danger-bg);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: var(--radius);
+      color: var(--danger);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      animation: slideDown 0.2s var(--ease-out);
+    }
+    .login-error.visible {
+      display: flex;
+    }
+    .login-footer {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .theme-toggle-login {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: all 0.2s var(--ease-bounce);
+    }
+    .theme-toggle-login:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+
+<button class="theme-toggle-login" id="theme-toggle-login" title="Toggle theme">
+  <i class="fas fa-sun"></i>
+</button>
+
+<div class="login-wrapper">
+  <div class="login-logo">
+    <i class="fas fa-terminal"></i>
+  </div>
+
+  <div>
+    <div class="login-title">Workflow Shell</div>
+    <div class="login-subtitle">Sign in to access the remote shell</div>
+  </div>
+
+  <div class="login-card">
+    <div class="login-error" id="login-error">
+      <i class="fas fa-circle-exclamation"></i>
+      <span id="login-error-text">Invalid credentials</span>
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-user"></i> Username</label>
+      <input type="text" id="login-username" placeholder="Enter your username" spellcheck="false" autocomplete="username" autofocus>
+    </div>
+
+    <div class="form-group">
+      <label><i class="fas fa-lock"></i> Password</label>
+      <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password">
+    </div>
+
+    <button class="login-btn" id="login-submit">
+      <i class="fas fa-arrow-right-to-bracket"></i> Sign In
+    </button>
+  </div>
+
+  <div class="login-footer">
+    Session expires after 5 minutes of inactivity
+  </div>
+</div>
+
+<script>
+var themeBtn = document.getElementById('theme-toggle-login');
+var storedTheme = localStorage.getItem('wfs-theme') || 'dark';
+document.documentElement.setAttribute('data-theme', storedTheme);
+themeBtn.innerHTML = '<i class="fas fa-' + (storedTheme === 'dark' ? 'sun' : 'moon') + '"></i>';
+
+themeBtn.addEventListener('click', function() {
+  var theme = document.documentElement.getAttribute('data-theme');
+  var newTheme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('wfs-theme', newTheme);
+  themeBtn.innerHTML = '<i class="fas fa-' + (newTheme === 'dark' ? 'sun' : 'moon') + '"></i>';
+});
+
+var usernameInput = document.getElementById('login-username');
+var passwordInput = document.getElementById('login-password');
+var submitBtn = document.getElementById('login-submit');
+var errorEl = document.getElementById('login-error');
+var errorText = document.getElementById('login-error-text');
+
+function showError(msg) {
+  errorText.textContent = msg;
+  errorEl.classList.add('visible');
+}
+
+function hideError() {
+  errorEl.classList.remove('visible');
+}
+
+function doLogin() {
+  var username = usernameInput.value.trim();
+  var password = passwordInput.value;
+  if (!username || !password) {
+    showError('Please enter both username and password');
+    return;
+  }
+  hideError();
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: username, password: password }),
+  })
+    .then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+    .then(function(result) {
+      if (result.status === 200 && result.data.token !== undefined) {
+        if (result.data.token) {
+          localStorage.setItem('wfs-session-token', result.data.token);
+        }
+        window.location.href = result.data.redirect || '/';
+      } else {
+        showError(result.data.error || 'Login failed');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-arrow-right-to-bracket"></i> Sign In';
+      }
+    })
+    .catch(function() {
+      showError('Network error. Please try again.');
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fas fa-arrow-right-to-bracket"></i> Sign In';
+    });
+}
+
+submitBtn.addEventListener('click', doLogin);
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+
+</body>
+</html>

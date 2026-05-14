@@ -129,10 +129,24 @@ function toast(message, icon, color) {
   }, 3000);
 }
 
+function getSessionToken() {
+  return localStorage.getItem('wfs-session-token') || '';
+}
+
 async function api(url, options) {
-  var res = await fetch(url, Object.assign({
-    headers: { 'Content-Type': 'application/json' },
-  }, options));
+  options = options || {};
+  var headers = options.headers || {};
+  headers['Content-Type'] = 'application/json';
+  var token = getSessionToken();
+  if (token) headers['x-session-token'] = token;
+  options.headers = headers;
+
+  var res = await fetch(url, options);
+  if (res.status === 401) {
+    localStorage.removeItem('wfs-session-token');
+    window.location.href = '/login.html';
+    throw new Error('Authentication required');
+  }
   if (!res.ok) {
     var err = await res.json().catch(function() { return { error: res.statusText }; });
     throw new Error(err.error || res.statusText);

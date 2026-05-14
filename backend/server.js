@@ -18,66 +18,73 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
 
-// Authentication config
+// ─── Authentication (session token based) ────────────────────────────────
+
 const AUTH_USER = process.env.USERNAME || '';
 const AUTH_PASS = process.env.PASSWORD || '';
 const AUTH_ENABLED = !!(AUTH_USER && AUTH_PASS);
-const SESSION_TTL = 5 * 60 * 1000; // 5 minutes
-const ipWhitelist = new Map();
+const SESSION_TTL = 5 * 60 * 1000;
+const sessions = new Map();
+let sessionId = 0;
 
-function isIpWhitelisted(ip) {
-  if (!AUTH_ENABLED) return true;
-  const entry = ipWhitelist.get(ip);
-  if (!entry) return false;
-  if (Date.now() - entry > SESSION_TTL) {
-    ipWhitelist.delete(ip);
-    return false;
+function generateToken() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let token = '';
+  for (let i = 0; i < 32; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return true;
+  return 'sess_' + token;
+}
+
+const PUBLIC_PATHS = ['/login.html', '/api/login', '/favicon.ico'];
+function isPublicPath(p) {
+  if (PUBLIC_PATHS.includes(p)) return true;
+  if (p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/vendor/')) return true;
+  return false;
 }
 
 function authMiddleware(req, res, next) {
   if (!AUTH_ENABLED) return next();
-  // Allow health check without auth (used by run.sh)
-  if (req.path === '/api/cwd') return next();
-  const ip = req.ip || req.connection.remoteAddress;
+  if (isPublicPath(req.path)) return next();
 
-  if (isIpWhitelisted(ip)) return next();
-
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Basic ')) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
-    return res.status(401).send('Authentication required');
+  const token = req.headers['x-session-token'];
+  if (token && sessions.has(token)) {
+    const entry = sessions.get(token);
+    if (Date.now() - entry.time < SESSION_TTL) {
+      entry.time = Date.now();
+      return next();
+    }
+    sessions.delete(token);
   }
 
-  const base64 = auth.slice(6);
-  const decoded = Buffer.from(base64, 'base64').toString('utf-8');
-  const colon = decoded.indexOf(':');
-  if (colon === -1) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
-    return res.status(401).send('Authentication required');
+  if (req.accepts('html')) {
+    return res.redirect('/login.html');
   }
-
-  const user = decoded.slice(0, colon);
-  const pass = decoded.slice(colon + 1);
-
-  if (user !== AUTH_USER || pass !== AUTH_PASS) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
-    return res.status(401).send('Invalid credentials');
-  }
-
-  ipWhitelist.set(ip, Date.now());
-  next();
+  res.status(401).json({ error: 'Authentication required' });
 }
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+
+app.post('/api/login', (req, res) => {
+  if (!AUTH_ENABLED) {
+    return res.json({ token: '', redirect: '/' });
+  }
+  const { username, password } = req.body || {};
+  if (username === AUTH_USER && password === AUTH_PASS) {
+    const token = generateToken();
+    sessions.set(token, { time: Date.now() });
+    res.json({ token, redirect: '/' });
+  } else {
+    res.status(401).json({ error: 'Invalid username or password' });
+  }
+});
 
 // Derive workspace dynamically: WORKSPACE_DIR env var > HOME/work > cwd
 const HOME = process.env.HOME || require('os').homedir();
 const WORKSPACE = process.env.WORKSPACE_DIR || path.join(HOME, 'work');
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 // Serve xterm.js and addon from node_modules
 app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
@@ -307,10 +314,14 @@ app.post('/api/quick-actions/run', (req, res) => {
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
-  const ip = req.socket.remoteAddress;
-  if (AUTH_ENABLED && !isIpWhitelisted(ip)) {
-    ws.close(4001, 'Authentication required');
-    return;
+  if (AUTH_ENABLED) {
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    const token = params.get('token');
+    if (!token || !sessions.has(token) || Date.now() - sessions.get(token).time >= SESSION_TTL) {
+      ws.close(4001, 'Authentication required');
+      return;
+    }
+    sessions.get(token).time = Date.now();
   }
 
   const ptyProcess = pty.spawn('/bin/bash', [], {
