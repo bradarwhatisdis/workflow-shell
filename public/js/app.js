@@ -1095,6 +1095,51 @@ document.getElementById('qa-command').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') document.getElementById('qa-submit').click();
 });
 
+// ─── Session Timer ─────────────────────────────────────────────────────────
+
+var sessionStart = Date.now();
+var timerDisplay = document.getElementById('timer-display');
+var timerInfoBtn = document.getElementById('timer-info-btn');
+
+setInterval(function() {
+  var elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+  var m = Math.floor(elapsed / 60);
+  var s = elapsed % 60;
+  timerDisplay.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}, 1000);
+
+var timerTooltip = null;
+
+timerInfoBtn.addEventListener('click', function(e) {
+  e.stopPropagation();
+  if (timerTooltip && timerTooltip.classList.contains('visible')) {
+    timerTooltip.classList.remove('visible');
+    return;
+  }
+  if (!timerTooltip) {
+    timerTooltip = document.createElement('div');
+    timerTooltip.className = 'timer-tooltip';
+    timerTooltip.innerHTML =
+      '<h4><i class="fas fa-clock"></i> Workflow Timeout</h4>' +
+      '<p>The workflow has a timeout limit. When this time is reached, the runner is automatically terminated.</p>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Current workflow</span><span class="timer-tip-value">30 min</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Run step limit</span><span class="timer-tip-value">25 min</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">GitHub max (free)</span><span class="timer-tip-value">6 hours</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Self-hosted max</span><span class="timer-tip-value">35 days</span></div>';
+    document.body.appendChild(timerTooltip);
+  }
+  var rect = timerInfoBtn.getBoundingClientRect();
+  timerTooltip.style.left = Math.max(10, rect.right - 280) + 'px';
+  timerTooltip.style.top = (rect.bottom + 8) + 'px';
+  timerTooltip.classList.add('visible');
+});
+
+document.addEventListener('click', function(e) {
+  if (timerTooltip && !e.target.closest('.session-timer')) {
+    timerTooltip.classList.remove('visible');
+  }
+});
+
 // ─── Theme Toggle ──────────────────────────────────────────────────────────
 
 var themeToggle = document.getElementById('theme-toggle');

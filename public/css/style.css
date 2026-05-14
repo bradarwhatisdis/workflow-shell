@@ -273,6 +273,89 @@ html, body {
   margin: 0 4px;
 }
 
+.session-timer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.timer-icon {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  transition: color 0.15s var(--ease);
+  position: relative;
+  display: flex;
+}
+
+.timer-icon:hover {
+  color: var(--accent);
+}
+
+.timer-display {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  min-width: 40px;
+}
+
+.timer-tooltip {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-lg);
+  z-index: 3000;
+  width: 280px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.timer-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.timer-tooltip h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timer-tooltip h4 i { color: var(--accent); }
+
+.timer-tooltip p {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.timer-tooltip .timer-tip-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+}
+
+.timer-tooltip .timer-tip-row:last-child { border-bottom: none; }
+
+.timer-tooltip .timer-tip-label { color: var(--text-muted); }
+.timer-tooltip .timer-tip-value { color: var(--text-primary); font-weight: 500; }
+
 .main-container {
   display: flex;
   flex: 1;
