@@ -265,8 +265,10 @@ function doLogin() {
       if (result.status === 200 && result.data.token !== undefined) {
         if (result.data.token) {
           localStorage.setItem('wfs-session-token', result.data.token);
+          window.location.replace('/?token=' + encodeURIComponent(result.data.token));
+        } else {
+          window.location.replace('/');
         }
-        window.location.href = result.data.redirect || '/';
       } else {
         showError(result.data.error || 'Login failed');
         submitBtn.disabled = false;

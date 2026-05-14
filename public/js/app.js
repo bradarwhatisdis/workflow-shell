@@ -130,6 +130,16 @@ function toast(message, icon, color) {
 }
 
 function getSessionToken() {
+  // Check URL param first (handles first-time redirect from login)
+  var urlParams = new URLSearchParams(window.location.search);
+  var urlToken = urlParams.get('token');
+  if (urlToken) {
+    localStorage.setItem('wfs-session-token', urlToken);
+    // Clean URL without full page reload
+    var cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, document.title, cleanUrl);
+    return urlToken;
+  }
   return localStorage.getItem('wfs-session-token') || '';
 }
 

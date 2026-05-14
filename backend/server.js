@@ -47,7 +47,7 @@ function authMiddleware(req, res, next) {
   if (!AUTH_ENABLED) return next();
   if (isPublicPath(req.path)) return next();
 
-  const token = req.headers['x-session-token'];
+  const token = req.headers['x-session-token'] || req.query.token;
   if (token && sessions.has(token)) {
     const entry = sessions.get(token);
     if (Date.now() - entry.time < SESSION_TTL) {

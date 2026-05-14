@@ -29,7 +29,9 @@ jobs:
 
       - name: Run Workspace Shell
         timeout-minutes: 25
-        env:
-          USERNAME: ${{ secrets.USERNAME && inputs.enable_login == true && secrets.USERNAME || '' }}
-          PASSWORD: ${{ secrets.PASSWORD && inputs.enable_login == true && secrets.PASSWORD || '' }}
-        run: ./scripts/run.sh
+        run: |
+          if [ "${{ inputs.enable_login }}" = "true" ]; then
+            export USERNAME="${{ secrets.USERNAME }}"
+            export PASSWORD="${{ secrets.PASSWORD }}"
+          fi
+          ./scripts/run.sh
