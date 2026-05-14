@@ -93,6 +93,7 @@ fileList.addEventListener('click', function(e) {
   }
 
   // Navigate or open — use dataset + icon fallback for robustness
+  console.log('click', name, 'isDir:', isDir, 'hasFolderIcon:', !!hasFolderIcon);
   if (isDir || hasFolderIcon) {
     loadDir(targetPath);
   } else {
