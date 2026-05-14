@@ -1,29 +1,29 @@
 // ─── App State ────────────────────────────────────────
 
-let currentPath = '';
-let editorInstance = null;
-let editingOriginalContent = '';
+var currentPath = '/';
+var editorInstance = null;
+var editingOriginalContent = '';
 
 // ─── DOM refs ─────────────────────────────────────────
 
-const fileList = document.getElementById('file-list');
-const breadcrumb = document.getElementById('breadcrumb');
-const cwdDisplay = document.getElementById('cwd-display');
-const uploadModal = document.getElementById('upload-modal');
-const editorModal = document.getElementById('editor-modal');
-const newfileModal = document.getElementById('newfile-modal');
-const confirmModal = document.getElementById('confirm-modal');
-const dropzone = document.getElementById('dropzone');
-const fileInput = document.getElementById('file-input');
-const progressFill = document.getElementById('progress-fill');
-const progressText = document.getElementById('progress-text');
-const uploadProgressDiv = document.getElementById('upload-progress');
-const toastContainer = document.getElementById('toast-container');
+var fileList = document.getElementById('file-list');
+var breadcrumb = document.getElementById('breadcrumb');
+var cwdDisplay = document.getElementById('cwd-display');
+var uploadModal = document.getElementById('upload-modal');
+var editorModal = document.getElementById('editor-modal');
+var newfileModal = document.getElementById('newfile-modal');
+var confirmModal = document.getElementById('confirm-modal');
+var dropzone = document.getElementById('dropzone');
+var fileInput = document.getElementById('file-input');
+var progressFill = document.getElementById('progress-fill');
+var progressText = document.getElementById('progress-text');
+var uploadProgressDiv = document.getElementById('upload-progress');
+var toastContainer = document.getElementById('toast-container');
 
 // ─── Utils ────────────────────────────────────────────
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
+  var div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
 }
@@ -36,16 +36,10 @@ function joinPath(base, name) {
 function dirname(p) {
   if (!p || p === '/') return '/';
   p = p.replace(/\/+$/, '');
-  const i = p.lastIndexOf('/');
+  var i = p.lastIndexOf('/');
   if (i === -1) return '.';
   if (i === 0) return '/';
   return p.substring(0, i);
-}
-
-function basename(p) {
-  p = p.replace(/\/+$/, '');
-  const i = p.lastIndexOf('/');
-  return i === -1 ? p : p.substring(i + 1);
 }
 
 // ─── Toast ────────────────────────────────────────────
@@ -53,7 +47,7 @@ function basename(p) {
 function toast(message, icon, color) {
   icon = icon || 'fa-circle-info';
   color = color || 'var(--text-primary)';
-  const el = document.createElement('div');
+  var el = document.createElement('div');
   el.className = 'toast';
   el.innerHTML = '<i class="fas ' + icon + '" style="color:' + color + '"></i> <span>' + escapeHtml(message) + '</span>';
   toastContainer.appendChild(el);
@@ -65,23 +59,51 @@ function toast(message, icon, color) {
 
 // ─── API Helpers ──────────────────────────────────────
 
-async function api(path, options) {
-  const res = await fetch('/api' + path, Object.assign({
+async function api(url, options) {
+  var res = await fetch(url, Object.assign({
     headers: { 'Content-Type': 'application/json' },
   }, options));
   if (!res.ok) {
-    const err = await res.json().catch(function() { return { error: res.statusText }; });
+    var err = await res.json().catch(function() { return { error: res.statusText }; });
     throw new Error(err.error || res.statusText);
   }
   return res.json();
 }
+
+// ─── Event Delegation for File List ───────────────────
+
+fileList.addEventListener('click', function(e) {
+  var li = e.target.closest('.file-item');
+  if (!li) return;
+
+  var name = li.dataset.name;
+  var targetPath = li.dataset.path;
+  var isDir = li.dataset.isDir === 'true';
+
+  // Action buttons
+  var actionBtn = e.target.closest('.action-btn');
+  if (actionBtn) {
+    e.stopPropagation();
+    if (actionBtn.classList.contains('edit')) openEditor(name);
+    else if (actionBtn.classList.contains('download')) downloadFile(name);
+    else if (actionBtn.classList.contains('delete')) showDeleteConfirm(name, isDir);
+    return;
+  }
+
+  // Navigate or open
+  if (isDir) {
+    loadDir(targetPath);
+  } else {
+    openEditor(name);
+  }
+});
 
 // ─── File Manager ─────────────────────────────────────
 
 async function loadDir(dirPath) {
   currentPath = dirPath;
   try {
-    const data = await api('/files?path=' + encodeURIComponent(dirPath));
+    var data = await api('/api/files?path=' + encodeURIComponent(dirPath));
     renderFileList(data.items, data.path);
     updateBreadcrumb(data.path);
     cwdDisplay.innerHTML = '<i class="fas fa-folder"></i> ' + escapeHtml(data.path);
@@ -93,19 +115,19 @@ async function loadDir(dirPath) {
 function renderFileList(items, dirPath) {
   fileList.innerHTML = '';
 
-  // Parent directory link
+  // Parent directory
   if (dirPath !== '/') {
-    const parentLi = document.createElement('li');
+    var parentLi = document.createElement('li');
     parentLi.className = 'file-item';
+    parentLi.dataset.name = '..';
+    parentLi.dataset.isDir = 'true';
+    parentLi.dataset.path = dirname(dirPath);
     parentLi.innerHTML = '<i class="fas fa-arrow-up icon"></i><span class="name">..</span><span class="meta"></span>';
-    parentLi.addEventListener('click', function() {
-      loadDir(dirname(dirPath));
-    });
     fileList.appendChild(parentLi);
   }
 
   if (items.length === 0) {
-    const empty = document.createElement('div');
+    var empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.innerHTML = '<i class="fas fa-folder-open"></i><p>Empty directory</p>';
     fileList.appendChild(empty);
@@ -113,9 +135,12 @@ function renderFileList(items, dirPath) {
   }
 
   items.forEach(function(item, idx) {
-    const li = document.createElement('li');
+    var li = document.createElement('li');
     li.className = 'file-item';
     li.style.animationDelay = (idx * 0.03) + 's';
+    li.dataset.name = item.name;
+    li.dataset.isDir = item.isDirectory ? 'true' : 'false';
+    li.dataset.path = joinPath(dirPath, item.name);
 
     if (item.isDirectory) {
       li.innerHTML =
@@ -123,51 +148,32 @@ function renderFileList(items, dirPath) {
         '<span class="name">' + escapeHtml(item.name) + '</span>' +
         '<span class="meta">DIR</span>' +
         '<div class="actions">' +
-        '<button class="action-btn delete" data-name="' + escapeHtml(item.name) + '" data-dir="true" title="Delete"><i class="fas fa-trash"></i></button>' +
+        '<button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>' +
         '</div>';
-      li.addEventListener('click', function(e) {
-        if (!e.target.closest('.actions')) loadDir(joinPath(dirPath, item.name));
-      });
     } else {
-      const ext = getExtension(item.name);
+      var ext = getExtension(item.name);
       li.innerHTML =
         '<i class="fas ' + getIconClass(ext) + ' icon file"></i>' +
         '<span class="name">' + escapeHtml(item.name) + '</span>' +
         '<span class="meta">' + formatSize(item.size) + '</span>' +
         '<div class="actions">' +
-        '<button class="action-btn edit" data-name="' + escapeHtml(item.name) + '" title="Edit"><i class="fas fa-pen"></i></button>' +
-        '<button class="action-btn download" data-name="' + escapeHtml(item.name) + '" title="Download"><i class="fas fa-download"></i></button>' +
-        '<button class="action-btn delete" data-name="' + escapeHtml(item.name) + '" data-dir="false" title="Delete"><i class="fas fa-trash"></i></button>' +
+        '<button class="action-btn edit" title="Edit"><i class="fas fa-pen-to-square"></i></button>' +
+        '<button class="action-btn download" title="Download"><i class="fas fa-download"></i></button>' +
+        '<button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>' +
         '</div>';
-      li.addEventListener('click', function(e) {
-        if (!e.target.closest('.actions')) openEditor(item.name);
-      });
     }
-
-    // Action button handlers
-    li.querySelectorAll('.action-btn').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const name = btn.dataset.name;
-        if (btn.classList.contains('edit')) openEditor(name);
-        else if (btn.classList.contains('download')) downloadFile(name);
-        else if (btn.classList.contains('delete')) {
-          showDeleteConfirm(name, btn.dataset.dir === 'true');
-        }
-      });
-    });
 
     fileList.appendChild(li);
   });
 }
 
 function getExtension(name) {
-  const i = name.lastIndexOf('.');
+  var i = name.lastIndexOf('.');
   return i > 0 ? name.substring(i + 1).toLowerCase() : '';
 }
 
 function getIconClass(ext) {
-  const map = {
+  var map = {
     sh: 'fa-file-lines', py: 'fa-file-code', js: 'fa-file-code', ts: 'fa-file-code',
     css: 'fa-file-code', html: 'fa-file-code', json: 'fa-file-code',
     yml: 'fa-file-code', yaml: 'fa-file-code', md: 'fa-file-lines',
@@ -178,9 +184,9 @@ function getIconClass(ext) {
 
 function formatSize(bytes) {
   if (bytes === 0) return '0 B';
-  const k = 1024;
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  var k = 1024;
+  var units = ['B', 'KB', 'MB', 'GB'];
+  var i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i];
 }
 
@@ -188,25 +194,24 @@ function formatSize(bytes) {
 
 function updateBreadcrumb(dirPath) {
   breadcrumb.innerHTML = '';
-  const parts = dirPath.split('/').filter(Boolean);
+  var parts = dirPath.split('/').filter(Boolean);
 
-  // Root
-  const root = document.createElement('span');
+  var root = document.createElement('span');
   root.className = 'breadcrumb-item' + (parts.length === 0 ? ' active' : '');
   root.textContent = 'work';
   if (parts.length > 0) root.addEventListener('click', function() { loadDir('/'); });
   breadcrumb.appendChild(root);
 
-  let built = '';
+  var built = '';
   parts.forEach(function(part, i) {
-    const sep = document.createElement('span');
+    var sep = document.createElement('span');
     sep.className = 'breadcrumb-sep';
     sep.textContent = ' / ';
     breadcrumb.appendChild(sep);
 
     built += '/' + part;
-    const item = document.createElement('span');
-    const isLast = (i === parts.length - 1);
+    var item = document.createElement('span');
+    var isLast = (i === parts.length - 1);
     item.className = 'breadcrumb-item' + (isLast ? ' active' : '');
     item.textContent = part;
     if (!isLast) item.addEventListener('click', function() { loadDir(built); });
@@ -216,10 +221,10 @@ function updateBreadcrumb(dirPath) {
 
 // ─── Delete Confirmation ──────────────────────────────
 
-let selectedFile = null;
+var selectedFile = null;
 
 function showDeleteConfirm(name, isDir) {
-  selectedFile = name;
+  selectedFile = { name: name, isDir: isDir };
   document.getElementById('confirm-text').textContent =
     (isDir ? 'Delete folder' : 'Delete file') + ' "' + name + '"? This cannot be undone.';
   confirmModal.classList.add('active');
@@ -227,9 +232,10 @@ function showDeleteConfirm(name, isDir) {
 
 document.getElementById('confirm-action').addEventListener('click', function() {
   if (selectedFile) {
-    api('/file?path=' + encodeURIComponent(joinPath(currentPath, selectedFile)), { method: 'DELETE' })
+    var filePath = joinPath(currentPath, selectedFile.name);
+    api('/api/file?path=' + encodeURIComponent(filePath), { method: 'DELETE' })
       .then(function() {
-        toast('Deleted: ' + selectedFile, 'fa-trash', 'var(--danger)');
+        toast('Deleted: ' + selectedFile.name, 'fa-trash', 'var(--danger)');
         loadDir(currentPath);
       })
       .catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
@@ -265,29 +271,28 @@ dropzone.addEventListener('dragleave', function() {
 dropzone.addEventListener('drop', function(e) {
   e.preventDefault();
   dropzone.classList.remove('drag-over');
-  fileInput.files = e.dataTransfer.files;
-  handleUpload();
+  handleFiles(e.dataTransfer.files);
 });
 
-fileInput.addEventListener('change', handleUpload);
+fileInput.addEventListener('change', function() {
+  handleFiles(fileInput.files);
+});
 
-function handleUpload() {
-  const files = fileInput.files;
+function handleFiles(files) {
   if (!files.length) return;
-
   uploadProgressDiv.style.display = 'block';
 
   Array.from(files).forEach(function(file) {
-    const formData = new FormData();
+    var formData = new FormData();
     formData.append('file', file);
     formData.append('path', currentPath);
 
-    const xhr = new XMLHttpRequest();
+    var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
 
     xhr.upload.addEventListener('progress', function(e) {
       if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
+        var pct = Math.round((e.loaded / e.total) * 100);
         progressFill.style.width = pct + '%';
         progressText.textContent = 'Uploading ' + file.name + ': ' + pct + '%';
       }
@@ -337,14 +342,14 @@ document.getElementById('newfile-modal-close').addEventListener('click', functio
 });
 
 document.getElementById('newfile-submit').addEventListener('click', function() {
-  const name = document.getElementById('newfile-name').value.trim();
-  const type = document.getElementById('newfile-type').value;
+  var name = document.getElementById('newfile-name').value.trim();
+  var type = document.getElementById('newfile-type').value;
   if (!name) { toast('Please enter a name.', 'fa-circle-exclamation', 'var(--warning)'); return; }
 
-  const filePath = joinPath(currentPath, name);
+  var filePath = joinPath(currentPath, name);
 
   if (type === 'directory') {
-    api('/file?path=' + encodeURIComponent(filePath), {
+    api('/api/file?path=' + encodeURIComponent(filePath), {
       method: 'PUT',
       body: JSON.stringify({ _isDir: true }),
     }).then(function() {
@@ -353,7 +358,7 @@ document.getElementById('newfile-submit').addEventListener('click', function() {
       loadDir(currentPath);
     }).catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
   } else {
-    api('/file?path=' + encodeURIComponent(filePath), {
+    api('/api/file?path=' + encodeURIComponent(filePath), {
       method: 'PUT',
       body: JSON.stringify({ content: '' }),
     }).then(function() {
@@ -369,24 +374,24 @@ document.getElementById('newfile-submit').addEventListener('click', function() {
 document.getElementById('editor-modal-close').addEventListener('click', closeEditor);
 
 function openEditor(fileName) {
-  const filePath = joinPath(currentPath, fileName);
-  const nameEl = document.getElementById('editor-filename');
+  var filePath = joinPath(currentPath, fileName);
+  var nameEl = document.getElementById('editor-filename');
   nameEl.textContent = fileName;
 
-  api('/file?path=' + encodeURIComponent(filePath))
+  api('/api/file?path=' + encodeURIComponent(filePath))
     .then(function(data) {
       editingOriginalContent = data.content;
       editorModal.classList.add('active');
 
-      const ext = getExtension(fileName);
-      const modeMap = {
+      var ext = getExtension(fileName);
+      var modeMap = {
         py: 'python', js: 'javascript', ts: 'javascript', sh: 'shell',
         css: 'css', html: 'htmlmixed', json: 'javascript',
         yml: 'yaml', yaml: 'yaml', md: 'markdown', xml: 'xml',
       };
-      const mode = modeMap[ext] || null;
+      var mode = modeMap[ext] || null;
 
-      const editorEl = document.getElementById('editor');
+      var editorEl = document.getElementById('editor');
       editorInstance = CodeMirror(editorEl, {
         value: data.content,
         mode: mode,
@@ -418,8 +423,8 @@ function openEditor(fileName) {
 
 function saveEditor(fileName) {
   if (!editorInstance) return;
-  const filePath = joinPath(currentPath, fileName);
-  api('/file?path=' + encodeURIComponent(filePath), {
+  var filePath = joinPath(currentPath, fileName);
+  api('/api/file?path=' + encodeURIComponent(filePath), {
     method: 'PUT',
     body: JSON.stringify({ content: editorInstance.getValue() }),
   }).then(function() {
@@ -428,6 +433,12 @@ function saveEditor(fileName) {
     toast('Saved: ' + fileName, 'fa-check-circle', 'var(--success)');
   }).catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
 }
+
+document.getElementById('editor-save').addEventListener('click', function() {
+  var nameEl = document.getElementById('editor-filename');
+  var fileName = nameEl.textContent.replace(/.*?([^\/]+)$/, function(_, m) { return m; }).trim();
+  saveEditor(fileName);
+});
 
 function closeEditor() {
   if (!editorInstance) { editorModal.classList.remove('active'); return; }
@@ -442,7 +453,7 @@ function closeEditor() {
 // ─── Download ─────────────────────────────────────────
 
 function downloadFile(fileName) {
-  const filePath = joinPath(currentPath, fileName);
+  var filePath = joinPath(currentPath, fileName);
   window.open('/api/download?path=' + encodeURIComponent(filePath), '_blank');
 }
 

@@ -5,7 +5,7 @@
   var FitAddon = window.FitAddon;
 
   if (!Terminal) {
-    console.error('xterm.js not loaded — check CDN scripts in index.html');
+    console.error('xterm.js not loaded. Run: cd backend && npm install');
     return;
   }
 

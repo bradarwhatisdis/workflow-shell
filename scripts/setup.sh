@@ -32,14 +32,11 @@ echo "npm version: $(npm -v)"
 # ─── Install backend dependencies ──────────────────────────────
 cd "$WORKDIR"
 
-if [ ! -d "backend/node_modules" ]; then
-  echo ""
-  echo "Installing backend dependencies..."
-  cd backend && npm install && cd ..
-else
-  echo ""
-  echo "Backend dependencies already installed."
-fi
+echo ""
+echo "Installing/updating backend dependencies..."
+cd backend
+npm install
+cd ..
 
 echo ""
 echo "--- Setup is complete! ---"

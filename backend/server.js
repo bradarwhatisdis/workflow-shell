@@ -6,6 +6,8 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 
+const VENDOR_DIR = path.join(__dirname, 'node_modules');
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -19,6 +21,9 @@ const WORKSPACE = process.env.WORKSPACE_DIR || path.join(HOME, 'work');
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+// Serve xterm.js and addon from node_modules
+app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
+app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
