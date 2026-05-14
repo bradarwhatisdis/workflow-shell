@@ -76,9 +76,11 @@ fileList.addEventListener('click', function(e) {
   var li = e.target.closest('.file-item');
   if (!li) return;
 
+  // Use multiple signals to determine directory: data attribute + icon class fallback
   var name = li.dataset.name;
   var targetPath = li.dataset.path;
   var isDir = li.dataset.isDir === 'true';
+  var hasFolderIcon = li.querySelector('.icon.folder');
 
   // Action buttons
   var actionBtn = e.target.closest('.action-btn');
@@ -90,8 +92,8 @@ fileList.addEventListener('click', function(e) {
     return;
   }
 
-  // Navigate or open
-  if (isDir) {
+  // Navigate or open — use dataset + icon fallback for robustness
+  if (isDir || hasFolderIcon) {
     loadDir(targetPath);
   } else {
     openEditor(name);

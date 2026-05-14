@@ -38,24 +38,36 @@
     },
   });
 
-  // Try different FitAddon constructors (CDN UMD vs ES module)
+  // Build fit addon — try multiple constructor patterns
   var fitAddon;
   if (FitAddon && FitAddon.FitAddon) {
     fitAddon = new FitAddon.FitAddon();
   } else if (FitAddon) {
     fitAddon = new FitAddon();
   } else {
-    // Fallback: use internal fit handler
-    fitAddon = { fit: function() {} };
-    term.fit = function() {
-      // Manual resize to container
-      var cols = Math.max(40, Math.floor((term.element.offsetWidth - 10) / 9));
-      var rows = Math.max(20, Math.floor((term.element.offsetHeight - 4) / 19));
-      term.resize(cols, rows);
-    };
+    // Manual fit fallback if FitAddon unavailable
+    fitAddon = { activate: function() {}, dispose: function() {} };
     console.warn('FitAddon not found, using manual fit fallback');
   }
-  if (fitAddon.fit) term.loadAddon(fitAddon);
+
+  // Always attach our own fit function so we control the logic
+  var origFit = fitAddon.fit ? fitAddon.fit.bind(fitAddon) : null;
+  fitAddon.fit = function() {
+    var cols, rows;
+    if (origFit) {
+      try {
+        origFit();
+        return;
+      } catch(e) {
+        // fall through to manual fit
+      }
+    }
+    // Manual calculation
+    cols = Math.max(40, Math.floor((term.element.offsetWidth - 14) / 9));
+    rows = Math.max(10, Math.floor((term.element.offsetHeight - 4) / 19));
+    try { term.resize(cols, rows); } catch(e) {}
+  };
+  term.loadAddon(fitAddon);
 
   var container = document.getElementById('terminal-container');
   if (!container) {
@@ -64,10 +76,10 @@
   }
   term.open(container);
 
-  // Initial fit
+  // Initial fit after render
   setTimeout(function() {
-    try { term.fit(); } catch(e) { console.warn('FitAddon error:', e); }
-  }, 50);
+    try { fitAddon.fit(); } catch(e) { console.warn('fit error:', e); }
+  }, 100);
 
   // ─── WebSocket Connection ──────────────────────────
 
@@ -84,7 +96,7 @@
     }
     buffer = [];
     term.focus();
-    try { term.fit(); } catch(e) {}
+    try { fitAddon.fit(); } catch(e) {}
   };
 
   ws.onmessage = function(event) {
@@ -118,13 +130,13 @@
     }
   });
 
-  // ─── Fit on resize ─────────────────────────────────
+  // ─── Fit on window resize ──────────────────────────
 
   var resizeTimer;
   window.addEventListener('resize', function() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
-      try { term.fit(); } catch(e) {}
+      try { fitAddon.fit(); } catch(e) {}
       if (termReady && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
