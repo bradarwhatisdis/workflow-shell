@@ -311,6 +311,150 @@ app.post('/api/quick-actions/run', (req, res) => {
   }
 });
 
+// ─── System Stats API ─────────────────────────────────────────────────────
+
+app.get('/api/system-stats', (req, res) => {
+  try {
+    const disk = execSync('df -h / | tail -1', { encoding: 'utf-8' }).trim().split(/\s+/);
+    const mem = execSync('free -h | grep Mem', { encoding: 'utf-8' }).trim().split(/\s+/);
+    const load = execSync('cat /proc/loadavg', { encoding: 'utf-8' }).trim().split(/\s+/);
+    const uptime = execSync('uptime -p', { encoding: 'utf-8' }).trim().replace('up ', '');
+    const procs = execSync('ps aux --no-headers | wc -l', { encoding: 'utf-8' }).trim();
+    res.json({
+      disk: { filesystem: disk[0], size: disk[1], used: disk[2], avail: disk[3], usePercent: disk[4], mount: disk[5] },
+      memory: { total: mem[1], used: mem[2], free: mem[3], shared: mem[4] || '-', buffCache: mem[5] || '-', avail: mem[6] || '-' },
+      load: { '1min': load[0], '5min': load[1], '15min': load[2] },
+      uptime,
+      processes: parseInt(procs, 10),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Git Status API ─────────────────────────────────────────────────────────
+
+app.get('/api/git-status', (req, res) => {
+  try {
+    let branch = '', changes = [], log = [];
+    try { branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim(); } catch (e) { branch = '(not a git repo)'; }
+    try {
+      const raw = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
+      if (raw) changes = raw.split('\n').map(l => ({ status: l.slice(0,2), file: l.slice(3) }));
+    } catch (e) {}
+    try {
+      const raw = execSync('git log --oneline -10', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
+      if (raw) log = raw.split('\n').map(l => { const s = l.indexOf(' '); return { hash: l.slice(0, s), message: l.slice(s + 1) }; });
+    } catch (e) {}
+    res.json({ branch, changes, log });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── File Tree API ──────────────────────────────────────────────────────────
+
+app.get('/api/files/tree', (req, res) => {
+  try {
+    const dir = getSafePath(req.query.path);
+    if (!dir) return res.status(400).json({ error: 'Invalid path' });
+    function buildTree(dirPath, depth) {
+      if (depth > 3) return [];
+      try {
+        const items = fs.readdirSync(dirPath, { withFileTypes: true });
+        return items
+          .filter(item => !item.name.startsWith('.'))
+          .map(item => {
+            const full = path.join(dirPath, item.name);
+            const stat = fs.statSync(full);
+            const entry = { name: item.name, isDirectory: stat.isDirectory() };
+            if (entry.isDirectory) entry.children = buildTree(full, depth + 1);
+            return entry;
+          });
+      } catch (e) { return []; }
+    }
+    const tree = buildTree(dir, 0);
+    const relPath = path.relative(WORKSPACE, dir);
+    res.json({ path: relPath === '' ? '/' : '/' + relPath, tree });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Search in Files API ─────────────────────────────────────────────────────
+
+app.get('/api/search', (req, res) => {
+  try {
+    const q = req.query.q;
+    if (!q || q.length < 2) return res.json({ results: [] });
+    const safeQuery = q.replace(/["'`$]/g, '\\$&');
+    const output = execSync('grep -rn --binary-files=without-match "' + safeQuery + '" . 2>/dev/null | head -50', {
+      cwd: WORKSPACE, encoding: 'utf-8', maxBuffer: 1024 * 512, timeout: 10000,
+    }).trim();
+    if (!output) return res.json({ results: [] });
+    const results = output.split('\n').filter(Boolean).map(line => {
+      const first = line.indexOf(':');
+      const second = line.indexOf(':', first + 1);
+      if (first === -1 || second === -1) return null;
+      return { file: line.slice(0, first), line: parseInt(line.slice(first + 1, second), 10), match: line.slice(second + 1).trim() };
+    }).filter(Boolean);
+    res.json({ results });
+  } catch (err) {
+    if (err.status === 1) return res.json({ results: [] });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── File Move API ───────────────────────────────────────────────────────────
+
+app.post('/api/file/move', (req, res) => {
+  try {
+    const { from, to } = req.body || {};
+    if (!from || !to) return res.status(400).json({ error: 'from and to paths required' });
+    const src = getSafePath(from);
+    const dst = getSafePath(to);
+    if (!src || !dst) return res.status(400).json({ error: 'Invalid paths' });
+    if (!fs.existsSync(src)) return res.status(404).json({ error: 'Source not found' });
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.renameSync(src, dst);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Archive API ──────────────────────────────────────────────────────────────
+
+app.post('/api/archive', (req, res) => {
+  try {
+    const { paths, name } = req.body || {};
+    if (!paths || !paths.length) return res.status(400).json({ error: 'paths array required' });
+    const archiveName = (name || 'archive') + '.zip';
+    const archivePath = path.join(WORKSPACE, archiveName);
+    const safePaths = paths.map(p => getSafePath(p)).filter(Boolean);
+    const relPaths = safePaths.map(p => path.relative(WORKSPACE, p));
+    const cmd = 'cd ' + WORKSPACE + ' && zip -r ' + archiveName + ' ' + relPaths.map(p => '"' + p.replace(/"/g, '\\"') + '"').join(' ');
+    execSync(cmd, { stdio: 'pipe', timeout: 30000 });
+    res.json({ success: true, file: archiveName });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/extract', (req, res) => {
+  try {
+    const { path: archiveRel } = req.body || {};
+    if (!archiveRel) return res.status(400).json({ error: 'path required' });
+    const archivePath = getSafePath(archiveRel);
+    if (!archivePath || !fs.existsSync(archivePath)) return res.status(404).json({ error: 'Archive not found' });
+    const dest = path.dirname(archivePath);
+    execSync('cd "' + dest + '" && unzip -o "' + path.basename(archivePath) + '"', { stdio: 'pipe', timeout: 30000 });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {

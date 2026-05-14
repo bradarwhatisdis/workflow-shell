@@ -1096,4 +1096,508 @@ themeToggle.addEventListener('click', function() {
   toast(newTheme === 'light' ? 'Light theme' : 'Dark theme', 'fa-palette', 'var(--accent)');
 });
 
+// ─── File Pane Tabs (List / Tree) ──────────────────────────────────────────
+
+function switchFileTab(tab) {
+  document.querySelectorAll('.pane-header-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelector('.pane-header-tab[data-ftab="' + tab + '"]').classList.add('active');
+  if (tab === 'files') {
+    document.getElementById('file-view-container').style.display = 'flex';
+    document.getElementById('file-tree-container').style.display = 'none';
+  } else {
+    document.getElementById('file-view-container').style.display = 'none';
+    document.getElementById('file-tree-container').style.display = 'block';
+    loadFileTree();
+  }
+}
+
+document.querySelectorAll('.pane-header-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() { switchFileTab(this.dataset.ftab); });
+});
+
+// ─── File Tree ──────────────────────────────────────────────────────────────
+
+function loadFileTree() {
+  var container = document.getElementById('file-tree');
+  var status = document.getElementById('file-tree-status');
+  container.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div>';
+  api('/api/files/tree')
+    .then(function(data) {
+      renderTree(data.tree || [], container, data.path || '/');
+      status.innerHTML = '';
+    })
+    .catch(function(err) {
+      container.innerHTML = '';
+      status.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
+    });
+}
+
+function renderTree(items, container, basePath) {
+  container.innerHTML = '';
+  items.forEach(function(item) {
+    var div = document.createElement('div');
+    div.className = 'tree-item';
+    if (item.isDirectory) {
+      var hasChildren = item.children && item.children.length > 0;
+      var toggle = document.createElement('span');
+      toggle.className = 'tree-toggle';
+      toggle.textContent = hasChildren ? '▸' : '';
+      div.appendChild(toggle);
+      var icon = document.createElement('span');
+      icon.className = 'tree-icon folder';
+      icon.innerHTML = '<i class="fas fa-folder"></i>';
+      div.appendChild(icon);
+      var name = document.createElement('span');
+      name.className = 'tree-name';
+      name.textContent = item.name;
+      div.appendChild(name);
+      var childPath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
+      div.addEventListener('click', function(e) {
+        if (e.target === toggle || toggle.contains(e.target)) {
+          var childrenContainer = div.nextElementSibling;
+          if (childrenContainer && childrenContainer.classList.contains('tree-children')) {
+            childrenContainer.style.display = childrenContainer.style.display === 'none' ? 'block' : 'none';
+            toggle.textContent = childrenContainer.style.display === 'none' ? '▸' : '▾';
+          }
+        } else {
+          switchFileTab('files');
+          loadDir(childPath);
+        }
+      });
+      container.appendChild(div);
+      var childrenContainer = document.createElement('div');
+      childrenContainer.className = 'tree-children';
+      childrenContainer.style.display = 'none';
+      if (hasChildren) renderTree(item.children, childrenContainer, childPath);
+      container.appendChild(childrenContainer);
+    } else {
+      var toggle = document.createElement('span');
+      toggle.className = 'tree-toggle';
+      toggle.textContent = '';
+      div.appendChild(toggle);
+      var icon = document.createElement('span');
+      icon.className = 'tree-icon file';
+      icon.innerHTML = '<i class="fas fa-file"></i>';
+      div.appendChild(icon);
+      var name = document.createElement('span');
+      name.className = 'tree-name';
+      name.textContent = item.name;
+      div.appendChild(name);
+      var filePath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
+      div.addEventListener('click', function() {
+        switchFileTab('files');
+        // Navigate to parent and open the file
+        var parent = basePath;
+        state.currentPath = parent;
+        loadDir(parent);
+      });
+      container.appendChild(div);
+    }
+  });
+  if (!items.length) container.innerHTML = '<div class="search-empty"><i class="fas fa-folder-open"></i><p>Empty</p></div>';
+}
+
+// ─── System Stats Panel ─────────────────────────────────────────────────────
+
+var statsTimer = null;
+
+document.querySelector('.pane-tab[data-tab="stats"]').addEventListener('click', function() {
+  loadStats();
+});
+
+function loadStats() {
+  var body = document.getElementById('stats-body');
+  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Loading stats...</div>';
+  api('/api/system-stats')
+    .then(function(d) {
+      var html = '';
+      html += '<div class="stat-grid">';
+      html += statCard('Disk Size', d.disk.size, 'green');
+      html += statCard('Disk Used', d.disk.used, d.disk.usePercent && parseInt(d.disk.usePercent) > 80 ? 'red' : 'yellow');
+      html += statCard('Disk Avail', d.disk.avail, 'green');
+      html += statCard('Disk Use', d.disk.usePercent || '0%', parseInt(d.disk.usePercent) > 80 ? 'red' : 'green');
+      html += statCard('Memory Total', d.memory.total, 'accent');
+      html += statCard('Memory Used', d.memory.used, parseInt(d.memory.used) > 4096 ? 'yellow' : 'green');
+      html += statCard('Memory Free', d.memory.free, 'green');
+      html += statCard('Memory Avail', d.memory.avail || '-', 'green');
+      html += statCard('CPU Load (1m)', d.load['1min'], parseFloat(d.load['1min']) > 2 ? 'red' : 'green');
+      html += statCard('CPU Load (5m)', d.load['5min'], parseFloat(d.load['5min']) > 2 ? 'yellow' : 'green');
+      html += statCard('CPU Load (15m)', d.load['15min'], 'green');
+      html += statCard('Processes', d.processes, 'accent');
+      html += '</div>';
+      html += '<div style="text-align:center;color:var(--text-muted);font-size:0.78rem"><i class="fas fa-clock"></i> Uptime: ' + escapeHtml(d.uptime) + '</div>';
+      body.innerHTML = html;
+    })
+    .catch(function(err) {
+      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
+    });
+}
+
+function statCard(label, value, color) {
+  return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value ' + (color || '') + '">' + escapeHtml(String(value)) + '</div></div>';
+}
+
+// ─── Git Status Panel ───────────────────────────────────────────────────────
+
+document.querySelector('.pane-tab[data-tab="git"]').addEventListener('click', function() {
+  loadGitStatus();
+});
+
+function loadGitStatus() {
+  var body = document.getElementById('git-body');
+  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Loading git status...</div>';
+  api('/api/git-status')
+    .then(function(d) {
+      var html = '';
+      html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-code-branch"></i> Branch</div>';
+      html += '<div class="git-branch"><i class="fas fa-code-branch"></i> ' + escapeHtml(d.branch) + '</div></div>';
+      if (d.changes && d.changes.length) {
+        html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-pen-to-square"></i> Changes (' + d.changes.length + ')</div>';
+        d.changes.forEach(function(c) {
+          var badge = c.status.trim()[0] || '?';
+          var label = { M: 'M', A: 'A', D: 'D', '?': '?' }[badge] || '?';
+          html += '<div class="git-change"><span class="git-status-badge ' + label + '">' + label + '</span><span>' + escapeHtml(c.file) + '</span></div>';
+        });
+        html += '</div>';
+      }
+      if (d.log && d.log.length) {
+        html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-history"></i> Recent Commits</div>';
+        d.log.forEach(function(c) {
+          html += '<div class="git-commit"><span class="git-hash">' + escapeHtml(c.hash) + '</span><span class="git-msg">' + escapeHtml(c.message) + '</span></div>';
+        });
+        html += '</div>';
+      }
+      if (!d.changes.length && (!d.log || !d.log.length)) {
+        html += '<div class="search-empty"><i class="fas fa-code-branch"></i><p>No git data available</p></div>';
+      }
+      body.innerHTML = html;
+    })
+    .catch(function(err) {
+      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
+    });
+}
+
+// ─── Search in Files ────────────────────────────────────────────────────────
+
+var searchTimer = null;
+
+document.querySelector('.pane-tab[data-tab="search-results"]').addEventListener('click', function() {
+  if (!window._lastSearchResults) {
+    document.getElementById('search-results-body').innerHTML =
+      '<div class="search-empty"><i class="fas fa-search"></i><p>Use the search bar in the topbar to search files</p></div>';
+    return;
+  }
+  renderSearchResults(window._lastSearchResults, window._lastSearchQuery);
+});
+
+function doFileSearch(query) {
+  window._lastSearchQuery = query;
+  var body = document.getElementById('search-results-body');
+  if (!query || query.length < 2) {
+    body.innerHTML = '<div class="search-empty"><i class="fas fa-search"></i><p>Type at least 2 characters</p></div>';
+    window._lastSearchResults = null;
+    return;
+  }
+  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Searching...</div>';
+  switchPaneTab('search-results');
+  api('/api/search?q=' + encodeURIComponent(query))
+    .then(function(data) {
+      window._lastSearchResults = data.results || [];
+      renderSearchResults(window._lastSearchResults, query);
+    })
+    .catch(function(err) {
+      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
+    });
+}
+
+function renderSearchResults(results, query) {
+  var body = document.getElementById('search-results-body');
+  if (!results || !results.length) {
+    body.innerHTML = '<div class="search-empty"><i class="fas fa-search"></i><p>No results for "' + escapeHtml(query) + '"</p></div>';
+    return;
+  }
+  var html = '<div style="margin-bottom:8px;font-size:0.78rem;color:var(--text-muted)">' + results.length + ' result' + (results.length > 1 ? 's' : '') + ' for <strong>' + escapeHtml(query) + '</strong></div>';
+  results.forEach(function(r) {
+    var highlighted = escapeHtml(r.match).replace(new RegExp(escapeHtml(query), 'gi'), function(m) { return '<mark>' + m + '</mark>'; });
+    html += '<div class="search-result-item" data-file="' + escapeHtml(r.file) + '" data-line="' + r.line + '">' +
+      '<div><span class="search-result-file">' + escapeHtml(r.file) + '</span><span class="search-result-line">:' + r.line + '</span></div>' +
+      '<div class="search-result-match">' + highlighted + '</div></div>';
+  });
+  body.innerHTML = html;
+  body.querySelectorAll('.search-result-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var file = this.dataset.file;
+      switchPaneTab('terminal');
+      toast('Found in: ' + file, 'fa-search', 'var(--accent)');
+    });
+  });
+}
+
+function switchPaneTab(tab) {
+  document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
+  var target = document.querySelector('.pane-tab[data-tab="' + tab + '"]');
+  if (target) target.classList.add('active');
+  var containers = {
+    terminal: 'terminal-container',
+    'quick-actions': 'quick-actions-container',
+    stats: 'stats-container',
+    git: 'git-container',
+    'search-results': 'search-results-container',
+  };
+  Object.keys(containers).forEach(function(key) {
+    var el = document.getElementById(containers[key]);
+    if (el) el.style.display = key === tab ? 'flex' : 'none';
+  });
+}
+
+// ─── Command Palette ────────────────────────────────────────────────────────
+
+var paletteActions = [
+  { name: 'Search files...', desc: 'Filter current directory', icon: 'fa-search', action: function() { document.getElementById('search-toggle').click(); } },
+  { name: 'Search in files...', desc: 'Full-text search workspace', icon: 'fa-file-search', action: function() { document.querySelector('.topbar-btn[title*="Search"]').click(); } },
+  { name: 'New File', desc: 'Create a new file (Ctrl+N)', icon: 'fa-file-circle-plus', action: function() { showNewFile(); } },
+  { name: 'New Folder', desc: 'Create a new directory', icon: 'fa-folder-plus', action: function() { document.getElementById('new-dir-btn').click(); } },
+  { name: 'Upload File', desc: 'Upload files to current directory', icon: 'fa-upload', action: function() { document.getElementById('upload-btn').click(); } },
+  { name: 'Refresh', desc: 'Refresh file list (Ctrl+R)', icon: 'fa-arrows-rotate', action: function() { loadDir(state.currentPath); } },
+  { name: 'Toggle Theme', desc: 'Switch dark/light theme', icon: 'fa-palette', action: function() { themeToggle.click(); } },
+  { name: 'Quick Actions', desc: 'View and run quick commands', icon: 'fa-bolt', action: function() { switchPaneTab('quick-actions'); } },
+  { name: 'System Stats', desc: 'View disk, memory, CPU stats', icon: 'fa-chart-simple', action: function() { switchPaneTab('stats'); loadStats(); } },
+  { name: 'Git Status', desc: 'View git branch and changes', icon: 'fab fa-git-alt', action: function() { switchPaneTab('git'); loadGitStatus(); } },
+  { name: 'Keyboard Shortcuts', desc: 'View shortcut keys (?)', icon: 'fa-keyboard', action: function() { toggleHelp(); } },
+];
+
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+    e.preventDefault();
+    togglePalette();
+  }
+});
+
+function togglePalette() {
+  var overlay = document.getElementById('cmd-palette');
+  var isActive = overlay.classList.contains('active');
+  overlay.classList.toggle('active');
+  if (!isActive) {
+    document.getElementById('cmd-palette-input').value = '';
+    document.getElementById('cmd-palette-results').innerHTML = '';
+    setTimeout(function() { document.getElementById('cmd-palette-input').focus(); }, 50);
+    renderPalette('');
+  }
+}
+
+document.getElementById('cmd-palette-input').addEventListener('input', function() {
+  renderPalette(this.value);
+});
+
+document.getElementById('cmd-palette-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') { togglePalette(); }
+  if (e.key === 'Enter') {
+    var active = document.querySelector('.cmd-palette-item.active');
+    if (active) { active.click(); togglePalette(); }
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    var items = document.querySelectorAll('.cmd-palette-item');
+    var active = document.querySelector('.cmd-palette-item.active');
+    if (active) { active.classList.remove('active'); }
+    var next = active ? active.nextElementSibling : items[0];
+    if (next) next.classList.add('active');
+    else if (items.length) items[0].classList.add('active');
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    var items = document.querySelectorAll('.cmd-palette-item');
+    var active = document.querySelector('.cmd-palette-item.active');
+    if (active) { active.classList.remove('active'); }
+    var prev = active ? active.previousElementSibling : items[items.length - 1];
+    if (prev) prev.classList.add('active');
+    else if (items.length) items[items.length - 1].classList.add('active');
+  }
+});
+
+function renderPalette(query) {
+  var results = document.getElementById('cmd-palette-results');
+  var filtered = paletteActions;
+  if (query.trim()) {
+    var lower = query.toLowerCase();
+    filtered = paletteActions.filter(function(a) {
+      return a.name.toLowerCase().includes(lower) || a.desc.toLowerCase().includes(lower);
+    });
+  }
+  if (!filtered.length) {
+    results.innerHTML = '<div class="cmd-palette-empty">No commands found</div>';
+    return;
+  }
+  results.innerHTML = '';
+  filtered.forEach(function(action, idx) {
+    var item = document.createElement('div');
+    item.className = 'cmd-palette-item' + (idx === 0 ? ' active' : '');
+    item.innerHTML = '<i class="fas ' + action.icon + '"></i><span class="cmd-palette-name">' + escapeHtml(action.name) + '</span><span class="cmd-palette-desc">' + escapeHtml(action.desc) + '</span>';
+    item.addEventListener('click', function() { action.action(); togglePalette(); });
+    results.appendChild(item);
+  });
+}
+
+document.getElementById('cmd-palette').addEventListener('click', function(e) {
+  if (e.target === this) togglePalette();
+});
+
+// ─── Global Search (topbar) ─────────────────────────────────────────────────
+
+var globalSearchHTML = '<div class="global-search-bar" id="global-search-bar">' +
+  '<i class="fas fa-file-search" style="color:var(--text-muted);font-size:0.8rem"></i>' +
+  '<input type="text" id="global-search-input" placeholder="Search in files..." spellcheck="false">' +
+  '</div>';
+
+var refreshBtn = document.getElementById('refresh-btn');
+refreshBtn.parentNode.insertBefore(createElementFromHTML(globalSearchHTML), refreshBtn);
+
+function createElementFromHTML(html) {
+  var div = document.createElement('div');
+  div.innerHTML = html;
+  return div.firstElementChild;
+}
+
+var globalSearchInput = document.getElementById('global-search-input');
+var globalSearchBar = document.getElementById('global-search-bar');
+
+document.querySelector('.search-toggle').addEventListener('click', function() {
+  globalSearchBar.classList.toggle('active');
+  if (globalSearchBar.classList.contains('active')) {
+    globalSearchInput.focus();
+  } else {
+    globalSearchInput.value = '';
+  }
+});
+
+globalSearchInput.addEventListener('input', function() {
+  var val = this.value.trim();
+  clearTimeout(searchTimer);
+  if (val.length >= 2) {
+    searchTimer = setTimeout(function() { doFileSearch(val); }, 400);
+  } else {
+    document.getElementById('search-results-body').innerHTML =
+      '<div class="search-empty"><i class="fas fa-search"></i><p>Type at least 2 characters</p></div>';
+  }
+});
+
+// Override search toggle to show global search
+var origSearchToggle = document.getElementById('search-toggle');
+origSearchToggle.addEventListener('click', function() {
+  globalSearchBar.classList.toggle('active');
+  if (globalSearchBar.classList.contains('active')) {
+    globalSearchInput.focus();
+  } else {
+    globalSearchInput.value = '';
+    globalSearchBar.classList.remove('active');
+  }
+});
+
+// ─── Context Menu: Archive / Extract ────────────────────────────────────────
+
+document.querySelectorAll('.context-menu-item[data-action="archive"]').forEach(function(el) {
+  el.addEventListener('click', function() {
+    var target = state.contextTarget;
+    if (!target) return;
+    hideContextMenu();
+    var archiveName = prompt('Archive name:', target.name + '.zip');
+    if (!archiveName) return;
+    if (!archiveName.endsWith('.zip')) archiveName += '.zip';
+    toast('Creating archive...', 'fa-file-zipper', 'var(--accent)');
+    api('/api/archive', {
+      method: 'POST',
+      body: JSON.stringify({ paths: [target.path], name: archiveName.replace('.zip', '') }),
+    }).then(function(data) {
+      toast('Created: ' + data.file, 'fa-file-zipper', 'var(--success)');
+      loadDir(state.currentPath);
+    }).catch(function(err) {
+      toast('Archive failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+    });
+  });
+});
+
+document.querySelectorAll('.context-menu-item[data-action="extract"]').forEach(function(el) {
+  el.addEventListener('click', function() {
+    var target = state.contextTarget;
+    if (!target) return;
+    hideContextMenu();
+    toast('Extracting...', 'fa-box-open', 'var(--accent)');
+    api('/api/extract', {
+      method: 'POST',
+      body: JSON.stringify({ path: target.path }),
+    }).then(function() {
+      toast('Extracted: ' + target.name, 'fa-box-open', 'var(--success)');
+      loadDir(state.currentPath);
+    }).catch(function(err) {
+      toast('Extract failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+    });
+  });
+});
+
+// ─── Drag to Move Files ─────────────────────────────────────────────────────
+
+document.addEventListener('dragstart', function(e) {
+  var li = e.target.closest('.file-item');
+  if (!li || li.classList.contains('parent-item')) return;
+  var path = li.dataset.path;
+  if (path) e.dataTransfer.setData('text/plain', path);
+});
+
+document.addEventListener('dragover', function(e) {
+  var li = e.target.closest('.file-item');
+  if (li && li.dataset.isDir === 'true' && !li.classList.contains('parent-item')) {
+    e.preventDefault();
+    li.classList.add('highlighted');
+  }
+});
+
+document.addEventListener('dragleave', function(e) {
+  var li = e.target.closest('.file-item');
+  if (li) li.classList.remove('highlighted');
+});
+
+document.addEventListener('drop', function(e) {
+  var li = e.target.closest('.file-item');
+  if (!li || li.dataset.isDir !== 'true' || li.classList.contains('parent-item')) return;
+  e.preventDefault();
+  li.classList.remove('highlighted');
+  var from = e.dataTransfer.getData('text/plain');
+  var toDir = li.dataset.path;
+  if (!from || !toDir) return;
+  var fileName = from.split('/').pop() || from.split('\\').pop();
+  var to = toDir + '/' + fileName;
+  if (from === to) return;
+  toast('Moving...', 'fa-arrows', 'var(--accent)');
+  api('/api/file/move', {
+    method: 'POST',
+    body: JSON.stringify({ from: from, to: to }),
+  }).then(function() {
+    toast('Moved: ' + fileName, 'fa-arrows', 'var(--success)');
+    loadDir(state.currentPath);
+  }).catch(function(err) {
+    toast('Move failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+  });
+});
+
+// ─── Auto-refresh via fs.watch ─────────────────────────────────────────────
+
+(function() {
+  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var token = getSessionToken();
+  var url = protocol + '//' + location.host + '/watch';
+  if (token) url += '?token=' + encodeURIComponent(token);
+  // Try to connect to a watch endpoint (best-effort)
+  try {
+    var watchWs = new WebSocket(url);
+    watchWs.onmessage = function() {
+      loadDir(state.currentPath);
+    };
+    watchWs.onclose = function() {};
+  } catch(e) {}
+})();
+
+// ─── File Extension Viewer (preview handler) ────────────────────────────────
+
+// Enhanced icon mapping in getFileIcon already handles this
+
 loadDir('/');

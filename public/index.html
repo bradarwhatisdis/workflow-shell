@@ -56,7 +56,10 @@
 
     <aside class="pane file-pane" id="file-pane">
       <div class="pane-header">
-        <span><i class="fas fa-folder-open"></i> Files</span>
+        <div class="pane-header-tabs">
+          <span class="pane-header-tab active" data-ftab="files"><i class="fas fa-list"></i> Files</span>
+          <span class="pane-header-tab" data-ftab="tree"><i class="fas fa-tree"></i> Tree</span>
+        </div>
         <div class="pane-header-actions">
           <button class="pane-header-btn" id="sort-btn" title="Sort options">
             <i class="fas fa-arrow-down-wide-short"></i>
@@ -78,7 +81,7 @@
         </div>
       </div>
 
-      <div class="file-list-container">
+      <div class="file-list-container" id="file-view-container">
         <ul class="file-list" id="file-list"></ul>
         <div class="file-list-status" id="file-list-status">
           <div class="file-skeleton" id="file-skeleton">
@@ -87,6 +90,11 @@
             <div class="skeleton-row"></div>
           </div>
         </div>
+      </div>
+
+      <div class="file-tree-container" id="file-tree-container" style="display:none">
+        <div class="file-tree" id="file-tree"></div>
+        <div class="file-tree-status" id="file-tree-status"></div>
       </div>
     </aside>
 
@@ -97,7 +105,10 @@
         <span><i class="fas fa-terminal"></i></span>
         <div class="pane-tabs" id="pane-tabs">
           <span class="pane-tab active" data-tab="terminal"><i class="fas fa-terminal"></i> Terminal</span>
-          <span class="pane-tab" data-tab="quick-actions"><i class="fas fa-bolt"></i> Quick Actions</span>
+          <span class="pane-tab" data-tab="quick-actions"><i class="fas fa-bolt"></i> Actions</span>
+          <span class="pane-tab" data-tab="stats"><i class="fas fa-chart-simple"></i> Stats</span>
+          <span class="pane-tab" data-tab="git"><i class="fab fa-git-alt"></i> Git</span>
+          <span class="pane-tab" data-tab="search-results"><i class="fas fa-search"></i> Search</span>
         </div>
         <span class="terminal-status" id="terminal-status">
           <span class="status-dot connected"></span>
@@ -139,6 +150,15 @@
           <button class="btn btn-primary btn-sm" id="qa-add-btn"><i class="fas fa-plus"></i> New Quick Action</button>
         </div>
       </div>
+      <div class="panel-container" id="stats-container" style="display:none">
+        <div class="panel-body scrollable" id="stats-body"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div></div>
+      </div>
+      <div class="panel-container" id="git-container" style="display:none">
+        <div class="panel-body scrollable" id="git-body"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div></div>
+      </div>
+      <div class="panel-container" id="search-results-container" style="display:none">
+        <div class="panel-body scrollable" id="search-results-body"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div></div>
+      </div>
     </main>
 
   </div>
@@ -150,6 +170,9 @@
   <div class="context-menu-item" data-action="rename"><i class="fas fa-pencil"></i> Rename</div>
   <div class="context-menu-item" data-action="download"><i class="fas fa-download"></i> Download</div>
   <div class="context-menu-item" data-action="copy-path"><i class="fas fa-link"></i> Copy Path</div>
+  <div class="context-menu-separator"></div>
+  <div class="context-menu-item" data-action="archive"><i class="fas fa-file-zipper"></i> Add to Archive</div>
+  <div class="context-menu-item" data-action="extract" style="display:none"><i class="fas fa-box-open"></i> Extract Here</div>
   <div class="context-menu-separator"></div>
   <div class="context-menu-item danger" data-action="delete"><i class="fas fa-trash"></i> Delete</div>
 </nav>
@@ -297,6 +320,17 @@
       <button class="btn btn-ghost modal-close">Cancel</button>
       <button class="btn btn-primary" id="qa-submit"><i class="fas fa-plus"></i> Add</button>
     </div>
+  </div>
+</div>
+
+<div class="cmd-palette-overlay" id="cmd-palette">
+  <div class="cmd-palette">
+    <div class="cmd-palette-input-wrap">
+      <i class="fas fa-search cmd-palette-icon"></i>
+      <input type="text" class="cmd-palette-input" id="cmd-palette-input" placeholder="Search commands..." spellcheck="false">
+      <span class="cmd-palette-hint"><kbd>Esc</kbd> to close</span>
+    </div>
+    <div class="cmd-palette-results" id="cmd-palette-results"></div>
   </div>
 </div>
 
