@@ -1045,19 +1045,8 @@ function deleteQuickAction(name) {
 
 document.querySelectorAll('.pane-tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
-    document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
-    this.classList.add('active');
-    var tabName = this.dataset.tab;
-    var terminal = document.getElementById('terminal-container');
-    var qa = document.getElementById('quick-actions-container');
-    if (tabName === 'terminal') {
-      terminal.style.display = 'block';
-      qa.style.display = 'none';
-    } else {
-      terminal.style.display = 'none';
-      qa.style.display = 'flex';
-      loadQuickActions();
-    }
+    switchPaneTab(this.dataset.tab);
+    if (this.dataset.tab === 'quick-actions') loadQuickActions();
   });
 });
 
