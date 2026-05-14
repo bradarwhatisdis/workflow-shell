@@ -61,7 +61,7 @@ app.get('/api/files', (req, res) => {
       return a.name.localeCompare(b.name);
     });
     const relPath = path.relative(WORKSPACE, dir);
-    res.json({ path: relPath === '' ? '/' : '/' + relPath, items });
+    res.json({ path: relPath === '' ? '/' : '/' + relPath, items: files });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
