@@ -13,6 +13,7 @@ var state = {
 };
 
 var dom = {};
+initDom();
 
 function initDom() {
   dom.fileList = document.getElementById('file-list');
@@ -883,5 +884,4 @@ document.querySelectorAll('.modal-close').forEach(function(btn) {
   });
 });
 
-initDom();
 loadDir('/');
