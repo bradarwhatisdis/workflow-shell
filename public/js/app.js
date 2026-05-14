@@ -884,4 +884,158 @@ document.querySelectorAll('.modal-close').forEach(function(btn) {
   });
 });
 
+// ─── Quick Actions ─────────────────────────────────────────────────────────
+
+var quickActionsData = [];
+
+function loadQuickActions() {
+  var list = document.getElementById('quick-actions-list');
+  list.innerHTML = '<div class="qa-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+  api('/api/quick-actions')
+    .then(function(data) {
+      quickActionsData = data.actions || [];
+      renderQuickActions();
+    })
+    .catch(function(err) {
+      list.innerHTML = '<div class="qa-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
+    });
+}
+
+function renderQuickActions() {
+  var list = document.getElementById('quick-actions-list');
+  if (!quickActionsData.length) {
+    list.innerHTML = '<div class="qa-empty"><i class="fas fa-bolt"></i><p>No quick actions yet</p></div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  var defaultNames = ['Disk Usage', 'Memory Info', 'List Processes', 'Check Uptime', 'Git Log'];
+
+  quickActionsData.forEach(function(action, idx) {
+    var isDefault = defaultNames.indexOf(action.Command_Name) !== -1;
+    var card = document.createElement('div');
+    card.className = 'qa-card' + (isDefault ? ' default' : '');
+    card.style.animationDelay = (idx * 0.04) + 's';
+
+    card.innerHTML =
+      '<div class="qa-info">' +
+        '<div class="qa-name">' + escapeHtml(action.Command_Name) + '</div>' +
+        '<div class="qa-desc">' + escapeHtml(action.Command_Description || 'No description') + '</div>' +
+        '<div class="qa-command-preview">$ ' + escapeHtml(action.Command) + '</div>' +
+      '</div>' +
+      '<div class="qa-actions">' +
+        '<button class="qa-btn run" title="Run command"><i class="fas fa-play"></i></button>' +
+        '<button class="qa-btn delete' + (isDefault ? ' default' : '') + '" title="' + (isDefault ? 'Default action' : 'Delete action') + '">' +
+          (isDefault ? '<i class="fas fa-lock"></i>' : '<i class="fas fa-trash"></i>') +
+        '</button>' +
+      '</div>';
+
+    card.querySelector('.qa-btn.run').addEventListener('click', function() {
+      runQuickAction(action.Command);
+    });
+
+    if (!isDefault) {
+      card.querySelector('.qa-btn.delete').addEventListener('click', function() {
+        deleteQuickAction(action.Command_Name);
+      });
+    }
+
+    list.appendChild(card);
+  });
+}
+
+function runQuickAction(command) {
+  document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelector('.pane-tab[data-tab="terminal"]').classList.add('active');
+  document.getElementById('quick-actions-container').style.display = 'none';
+  document.getElementById('terminal-container').style.display = 'block';
+
+  if (window.sendToTerminal) {
+    window.sendToTerminal(command);
+    toast('Running: ' + command, 'fa-play', 'var(--success)');
+  } else {
+    toast('Terminal not connected', 'fa-circle-exclamation', 'var(--warning)');
+  }
+}
+
+function deleteQuickAction(name) {
+  if (!confirm('Delete quick action "' + name + '"?')) return;
+  api('/api/quick-actions', {
+    method: 'DELETE',
+    body: JSON.stringify({ command_name: name }),
+  }).then(function(data) {
+    quickActionsData = data.actions || [];
+    renderQuickActions();
+    if (data.pushed) {
+      toast('Deleted: ' + name + ' (committed to repo)', 'fa-trash', 'var(--danger)');
+    } else {
+      toast('Deleted: ' + name, 'fa-trash', 'var(--danger)');
+    }
+  }).catch(function(err) {
+    toast('Delete failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+  });
+}
+
+document.querySelectorAll('.pane-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    var tabName = this.dataset.tab;
+    var terminal = document.getElementById('terminal-container');
+    var qa = document.getElementById('quick-actions-container');
+    if (tabName === 'terminal') {
+      terminal.style.display = 'block';
+      qa.style.display = 'none';
+    } else {
+      terminal.style.display = 'none';
+      qa.style.display = 'flex';
+      loadQuickActions();
+    }
+  });
+});
+
+document.getElementById('qa-add-btn').addEventListener('click', function() {
+  document.getElementById('qa-name').value = '';
+  document.getElementById('qa-desc').value = '';
+  document.getElementById('qa-command').value = '';
+  document.getElementById('qa-modal').classList.add('active');
+  setTimeout(function() { document.getElementById('qa-name').focus(); }, 100);
+});
+
+document.getElementById('qa-modal-close').addEventListener('click', function() {
+  document.getElementById('qa-modal').classList.remove('active');
+});
+
+document.getElementById('qa-submit').addEventListener('click', function() {
+  var name = document.getElementById('qa-name').value.trim();
+  var desc = document.getElementById('qa-desc').value.trim();
+  var command = document.getElementById('qa-command').value.trim();
+  if (!name) { toast('Please enter a command name.', 'fa-circle-exclamation', 'var(--warning)'); return; }
+  if (!command) { toast('Please enter a command.', 'fa-circle-exclamation', 'var(--warning)'); return; }
+
+  api('/api/quick-actions', {
+    method: 'POST',
+    body: JSON.stringify({
+      command_name: name,
+      command_description: desc,
+      command: command,
+    }),
+  }).then(function(data) {
+    quickActionsData = data.actions || [];
+    renderQuickActions();
+    document.getElementById('qa-modal').classList.remove('active');
+    if (data.pushed) {
+      toast('Added: ' + name + ' (committed to repo)', 'fa-plus', 'var(--success)');
+    } else {
+      toast('Added: ' + name, 'fa-plus', 'var(--success)');
+    }
+  }).catch(function(err) {
+    toast('Add failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+  });
+});
+
+document.getElementById('qa-command').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('qa-submit').click();
+});
+
 loadDir('/');

@@ -147,4 +147,13 @@
 
   container.addEventListener('click', function() { term.focus(); });
 
+  // ─── Expose command sender for Quick Actions ────────
+
+  window.sendToTerminal = function(data) {
+    var msg = { type: 'input', data: data + '\n' };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  };
+
 })();

@@ -1,0 +1,27 @@
+[
+  {
+    "Command_Name": "Disk Usage",
+    "Command_Description": "Check disk usage in human-readable format",
+    "Command": "df -h"
+  },
+  {
+    "Command_Name": "Memory Info",
+    "Command_Description": "Show memory usage information",
+    "Command": "free -h"
+  },
+  {
+    "Command_Name": "List Processes",
+    "Command_Description": "List top 20 processes by memory",
+    "Command": "ps aux --sort=-%mem | head -20"
+  },
+  {
+    "Command_Name": "Check Uptime",
+    "Command_Description": "Show system uptime and load",
+    "Command": "uptime && cat /proc/loadavg"
+  },
+  {
+    "Command_Name": "Git Log",
+    "Command_Description": "Show recent git commits",
+    "Command": "git log --oneline -10"
+  }
+]

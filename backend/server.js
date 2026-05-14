@@ -5,6 +5,10 @@ const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { execSync } = require('child_process');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const QUICK_ACTIONS_PATH = path.join(REPO_ROOT, 'quick_actions.json');
 
 const VENDOR_DIR = path.join(__dirname, 'node_modules');
 
@@ -153,6 +157,77 @@ app.get('/api/download', (req, res) => {
 
 app.get('/api/cwd', (req, res) => {
   res.json({ cwd: WORKSPACE });
+});
+
+// ─── Quick Actions API ─────────────────────────────────────────────────────
+
+function readQuickActions() {
+  if (!fs.existsSync(QUICK_ACTIONS_PATH)) return [];
+  const raw = fs.readFileSync(QUICK_ACTIONS_PATH, 'utf-8');
+  return JSON.parse(raw);
+}
+
+function writeQuickActions(actions) {
+  fs.writeFileSync(QUICK_ACTIONS_PATH, JSON.stringify(actions, null, 2) + '\n', 'utf-8');
+}
+
+function gitCommitAndPush(message) {
+  try {
+    execSync('git add quick_actions.json', { cwd: REPO_ROOT, stdio: 'pipe' });
+    execSync('git commit -m "' + message.replace(/"/g, '\\"') + '"', { cwd: REPO_ROOT, stdio: 'pipe' });
+    execSync('git push', { cwd: REPO_ROOT, stdio: 'pipe' });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+app.get('/api/quick-actions', (req, res) => {
+  try {
+    const actions = readQuickActions();
+    res.json({ actions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/quick-actions', (req, res) => {
+  try {
+    const { command_name, command_description, command } = req.body;
+    if (!command_name || !command) {
+      return res.status(400).json({ error: 'command_name and command are required' });
+    }
+    const actions = readQuickActions();
+    actions.push({
+      Command_Name: command_name,
+      Command_Description: command_description || '',
+      Command: command,
+    });
+    writeQuickActions(actions);
+    const pushed = gitCommitAndPush('Add quick action: ' + command_name);
+    res.json({ success: true, actions, pushed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/quick-actions', (req, res) => {
+  try {
+    const { command_name } = req.body;
+    if (!command_name) {
+      return res.status(400).json({ error: 'command_name is required' });
+    }
+    let actions = readQuickActions();
+    const filtered = actions.filter(a => a.Command_Name !== command_name);
+    if (filtered.length === actions.length) {
+      return res.status(404).json({ error: 'Quick action not found' });
+    }
+    writeQuickActions(filtered);
+    const pushed = gitCommitAndPush('Remove quick action: ' + command_name);
+    res.json({ success: true, actions: filtered, pushed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Terminal WebSocket ────────────────────────────────────────────────────

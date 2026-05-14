@@ -91,12 +91,24 @@
 
     <main class="pane terminal-pane" id="terminal-pane">
       <div class="pane-header">
-        <span><i class="fas fa-terminal"></i> Terminal</span>
+        <span><i class="fas fa-terminal"></i></span>
+        <div class="pane-tabs" id="pane-tabs">
+          <span class="pane-tab active" data-tab="terminal"><i class="fas fa-terminal"></i> Terminal</span>
+          <span class="pane-tab" data-tab="quick-actions"><i class="fas fa-bolt"></i> Quick Actions</span>
+        </div>
         <span class="terminal-status" id="terminal-status">
-          <span class="status-dot connected"></span> Connected
+          <span class="status-dot connected"></span>
         </span>
       </div>
       <div class="terminal-container" id="terminal-container"></div>
+      <div class="quick-actions-container" id="quick-actions-container" style="display:none">
+        <div class="quick-actions-list" id="quick-actions-list">
+          <div class="qa-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        </div>
+        <div class="quick-actions-footer">
+          <button class="btn btn-primary btn-sm" id="qa-add-btn"><i class="fas fa-plus"></i> New Quick Action</button>
+        </div>
+      </div>
     </main>
 
   </div>
@@ -227,6 +239,33 @@
         <div class="shortcut"><kbd>Esc</kbd><span>Close modal / search</span></div>
         <div class="shortcut"><kbd>?</kbd><span>Toggle this help</span></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="qa-modal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3><i class="fas fa-bolt"></i> New Quick Action</h3>
+      <button class="modal-close" id="qa-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label><i class="fas fa-tag"></i> Command Name</label>
+        <input type="text" id="qa-name" placeholder="e.g. Check Disk" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-align-left"></i> Description</label>
+        <input type="text" id="qa-desc" placeholder="What does this command do?" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-terminal"></i> Command</label>
+        <input type="text" id="qa-command" placeholder="e.g. df -h" spellcheck="false">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Cancel</button>
+      <button class="btn btn-primary" id="qa-submit"><i class="fas fa-plus"></i> Add</button>
     </div>
   </div>
 </div>

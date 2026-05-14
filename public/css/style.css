@@ -230,6 +230,44 @@ html, body {
   color: var(--text-muted);
 }
 
+.pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.pane-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: all 0.15s var(--ease);
+  border-bottom: 2px solid transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.pane-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.pane-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.pane-tab i {
+  font-size: 0.75rem;
+}
+
 .pane-header-actions {
   margin-left: auto;
   display: flex;
@@ -686,6 +724,174 @@ html, body {
 
 .xterm-viewport {
   scrollbar-width: thin;
+}
+
+.quick-actions-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.quick-actions-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quick-actions-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.quick-actions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quick-actions-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.qa-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.15s var(--ease);
+  animation: fileItemIn 0.2s var(--ease-out) forwards;
+  opacity: 0;
+}
+
+.qa-card:hover {
+  border-color: var(--border-color);
+  background: var(--bg-hover);
+}
+
+.qa-card.default {
+  border-left: 2px solid var(--accent);
+}
+
+.qa-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.qa-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.qa-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qa-command-preview {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  margin-top: 4px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qa-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.qa-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  transition: all 0.12s var(--ease);
+}
+
+.qa-btn:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.qa-btn.run {
+  color: var(--success);
+}
+
+.qa-btn.run:hover {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.qa-btn.delete {
+  color: var(--text-muted);
+}
+
+.qa-btn.delete:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.qa-btn.default {
+  color: var(--accent);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.qa-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.qa-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-muted);
+  gap: 8px;
+}
+
+.qa-empty i {
+  font-size: 2rem;
+  opacity: 0.3;
+}
+
+.quick-actions-footer {
+  padding: 8px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: center;
 }
 
 .modal-overlay {
