@@ -80,7 +80,7 @@ fileList.addEventListener('click', function(e) {
   var name = li.dataset.name;
   var targetPath = li.dataset.path;
   var isDir = li.dataset.isDir === 'true';
-  var hasFolderIcon = li.querySelector('.icon.folder');
+  var hasFolderIcon = li.querySelector('.icon.fa-folder');
 
   // Action buttons
   var actionBtn = e.target.closest('.action-btn');
