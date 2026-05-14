@@ -97,7 +97,17 @@ fileList.addEventListener('click', function(e) {
   if (isDir || hasFolderIcon) {
     loadDir(targetPath);
   } else {
-    openEditor(name);
+    // Fallback: try as directory first; if that fails, open as file
+    api('/api/files?path=' + encodeURIComponent(targetPath))
+      .then(function(data) {
+        currentPath = targetPath;
+        renderFileList(data.items, data.path);
+        updateBreadcrumb(data.path);
+        cwdDisplay.innerHTML = '<i class="fas fa-folder"></i> ' + escapeHtml(data.path);
+      })
+      .catch(function() {
+        openEditor(name);
+      });
   }
 });
 
