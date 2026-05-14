@@ -103,23 +103,29 @@
       <div class="terminal-container" id="terminal-container"></div>
       <div class="qa-runner-overlay" id="qa-runner-overlay" style="display:none">
         <div class="qa-runner-header">
-          <div class="qa-runner-badge"><i class="fas fa-bolt"></i> Quick Action</div>
+          <div class="qa-runner-badge"><i class="fas fa-bolt"></i> Quick Action Runner</div>
           <button class="qa-runner-close" id="qa-runner-close" title="Close (go back to terminal)"><i class="fas fa-xmark"></i></button>
         </div>
         <div class="qa-runner-body">
           <div class="qa-runner-banner">
             <div class="qa-runner-title" id="qa-runner-title"></div>
             <div class="qa-runner-desc" id="qa-runner-desc"></div>
-            <div class="qa-runner-cmd"><span class="qa-runner-prompt">$</span> <span id="qa-runner-cmd"></span></div>
+            <div class="qa-runner-cmd-wrap">
+              <span class="section-label"><i class="fas fa-terminal"></i> Command</span>
+              <div class="qa-runner-cmd"><span class="qa-runner-prompt">$</span> <span id="qa-runner-cmd"></span></div>
+            </div>
           </div>
-          <div class="qa-runner-output" id="qa-runner-output">
-            <div class="qa-runner-loading" id="qa-runner-loading">
-              <i class="fas fa-spinner fa-spin"></i> Running...
+          <div class="qa-runner-output-section">
+            <span class="section-label"><i class="fas fa-list"></i> Output</span>
+            <div class="qa-runner-output" id="qa-runner-output">
+              <div class="qa-runner-loading" id="qa-runner-loading">
+                <i class="fas fa-spinner fa-spin"></i> Running...
+              </div>
             </div>
           </div>
         </div>
         <div class="qa-runner-footer">
-          <button class="btn btn-ghost btn-sm" id="qa-runner-close-btn"><i class="fas fa-xmark"></i> Close &amp; Back to Terminal</button>
+          <button class="btn btn-ghost" id="qa-runner-close-btn"><i class="fas fa-xmark"></i> Close &amp; Back to Terminal</button>
         </div>
       </div>
       <div class="quick-actions-container" id="quick-actions-container" style="display:none">
