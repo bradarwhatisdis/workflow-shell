@@ -18,6 +18,60 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
 
+// Authentication config
+const AUTH_USER = process.env.USERNAME || '';
+const AUTH_PASS = process.env.PASSWORD || '';
+const AUTH_ENABLED = !!(AUTH_USER && AUTH_PASS);
+const SESSION_TTL = 5 * 60 * 1000; // 5 minutes
+const ipWhitelist = new Map();
+
+function isIpWhitelisted(ip) {
+  if (!AUTH_ENABLED) return true;
+  const entry = ipWhitelist.get(ip);
+  if (!entry) return false;
+  if (Date.now() - entry > SESSION_TTL) {
+    ipWhitelist.delete(ip);
+    return false;
+  }
+  return true;
+}
+
+function authMiddleware(req, res, next) {
+  if (!AUTH_ENABLED) return next();
+  // Allow health check without auth (used by run.sh)
+  if (req.path === '/api/cwd') return next();
+  const ip = req.ip || req.connection.remoteAddress;
+
+  if (isIpWhitelisted(ip)) return next();
+
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
+    return res.status(401).send('Authentication required');
+  }
+
+  const base64 = auth.slice(6);
+  const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+  const colon = decoded.indexOf(':');
+  if (colon === -1) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
+    return res.status(401).send('Authentication required');
+  }
+
+  const user = decoded.slice(0, colon);
+  const pass = decoded.slice(colon + 1);
+
+  if (user !== AUTH_USER || pass !== AUTH_PASS) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Workflow Shell"');
+    return res.status(401).send('Invalid credentials');
+  }
+
+  ipWhitelist.set(ip, Date.now());
+  next();
+}
+
+app.use(authMiddleware);
+
 // Derive workspace dynamically: WORKSPACE_DIR env var > HOME/work > cwd
 const HOME = process.env.HOME || require('os').homedir();
 const WORKSPACE = process.env.WORKSPACE_DIR || path.join(HOME, 'work');
@@ -252,7 +306,13 @@ app.post('/api/quick-actions/run', (req, res) => {
 
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const ip = req.socket.remoteAddress;
+  if (AUTH_ENABLED && !isIpWhitelisted(ip)) {
+    ws.close(4001, 'Authentication required');
+    return;
+  }
+
   const ptyProcess = pty.spawn('/bin/bash', [], {
     name: 'xterm-256color',
     cols: 80,

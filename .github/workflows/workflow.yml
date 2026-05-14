@@ -2,6 +2,12 @@ name: workflow-shell
 
 on:
   workflow_dispatch:
+    inputs:
+      enable_login:
+        description: 'Enable login authentication'
+        type: boolean
+        default: false
+        required: false
 
 jobs:
   build:
@@ -23,4 +29,7 @@ jobs:
 
       - name: Run Workspace Shell
         timeout-minutes: 25
+        env:
+          USERNAME: ${{ secrets.USERNAME && inputs.enable_login == true && secrets.USERNAME || '' }}
+          PASSWORD: ${{ secrets.PASSWORD && inputs.enable_login == true && secrets.PASSWORD || '' }}
         run: ./scripts/run.sh
