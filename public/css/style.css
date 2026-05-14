@@ -256,6 +256,16 @@ html, body {
   transform: translateY(0) scale(0.92);
 }
 
+.kill-btn {
+  color: var(--text-muted);
+}
+
+.kill-btn:hover {
+  color: var(--danger) !important;
+  background: var(--danger-bg) !important;
+  border-color: rgba(239, 68, 68, 0.2) !important;
+}
+
 .topbar-divider {
   width: 1px;
   height: 20px;

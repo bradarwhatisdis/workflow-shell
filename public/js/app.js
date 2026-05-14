@@ -881,6 +881,21 @@ document.getElementById('refresh-btn').addEventListener('click', function() {
   loadDir(state.currentPath);
 });
 
+document.getElementById('kill-btn').addEventListener('click', function() {
+  if (confirm('Kill all processes and stop the workflow?\n\nThis will terminate the server, SSH tunnel, and all running processes.')) {
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    toast('Shutting down...', 'fa-power-off', 'var(--danger)');
+    api('/api/kill', { method: 'POST' }).then(function(d) {
+      toast(d.message || 'Goodbye!', 'fa-power-off', 'var(--danger)');
+    }).catch(function() {});
+    setTimeout(function() {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg-primary);color:var(--text-muted);font-family:var(--font-sans)"><div style="text-align:center"><i class="fas fa-power-off" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block"></i><p>Workflow Shell terminated</p><p style="font-size:0.85rem;margin-top:8px;opacity:0.6">The server has been shut down.</p></div></div>';
+    }, 2000);
+  }
+});
+
 document.getElementById('help-btn').addEventListener('click', toggleHelp);
 
 document.getElementById('help-modal-close').addEventListener('click', function() {
@@ -1364,6 +1379,7 @@ var paletteActions = [
   { name: 'System Stats', desc: 'View disk, memory, CPU stats', icon: 'fa-chart-simple', action: function() { switchPaneTab('stats'); loadStats(); } },
   { name: 'Git Status', desc: 'View git branch and changes', icon: 'fab fa-git-alt', action: function() { switchPaneTab('git'); loadGitStatus(); } },
   { name: 'Keyboard Shortcuts', desc: 'View shortcut keys (?)', icon: 'fa-keyboard', action: function() { toggleHelp(); } },
+  { name: 'Kill & Stop Workflow', desc: 'Terminate all processes and exit', icon: 'fa-power-off', action: function() { document.getElementById('kill-btn').click(); } },
 ];
 
 document.addEventListener('keydown', function(e) {

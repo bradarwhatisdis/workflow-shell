@@ -455,6 +455,17 @@ app.post('/api/extract', (req, res) => {
   }
 });
 
+// ─── Kill API ──────────────────────────────────────────────────────────────
+
+app.post('/api/kill', (req, res) => {
+  res.json({ success: true, message: 'Shutting down workflow shell...' });
+  console.log('Kill requested - shutting down...');
+  setTimeout(() => {
+    try { execSync('pkill -f "node backend/server" 2>/dev/null; pkill -f "ssh.*pinggy" 2>/dev/null; pkill -f "a.pinggy" 2>/dev/null; exit 0', { stdio: 'ignore' }); } catch (e) {}
+    process.exit(0);
+  }, 1000);
+});
+
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
