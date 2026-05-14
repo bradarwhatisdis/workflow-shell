@@ -1,49 +1,67 @@
 # workflow-shell
 
-Web-based terminal + file manager for debugging GitHub Actions runners interactively.
+```
+  __        __  _        __ _          _    _          _  _   
+  \ \      / / | |      / _| |        | |  | |        | || |  
+   \ \ /\ / /__| | ___ | |_| | ___   | |__| | ___  __| || |_ 
+    \ V  V / _ \ |/ _ \|  _| |/ _ \  |  __  |/ _ \/ _` | __|
+     \_/\_/ __/ | | __/| | | | (_) | | |  | |  __/ (_| | |_ 
+           _| |_|\___\_| |_|_|\___/  |_|  |_|\___|\__,_|\__|
+```
 
-## Quick Start
+Web-based terminal + file manager. Debug GitHub Actions runners from your browser.
+
+[![MIT](https://img.shields.io/badge/license-MIT-purple?style=flat)](LICENSE)
+[![Node](https://img.shields.io/badge/node-18%2B-3fb950?style=flat)](#)
+
+---
+
+### Run locally
 
 ```bash
 cd backend && npm install && cd ..
 node backend/server.js
-# → http://localhost:8080
+# open http://localhost:8080
 ```
 
-Or via GitHub Actions — go to **Actions** → **workflow-shell** → **Run workflow**. Check "Enable login" if you've set `USERNAME` and `PASSWORD` as repo secrets. The logs will show a public URL.
+### Or on a runner
 
-## Features
+Go to **Actions** → **workflow-shell** → **Run workflow**.  
+Enable login if you've set `USERNAME` & `PASSWORD` as repo secrets.  
+The logs will print a public URL.
 
-- Split-pane UI: file browser on the left, xterm.js terminal on the right
-- Browse, upload, download, edit, rename, delete files
-- CodeMirror editor with syntax highlighting (Ctrl+S to save)
-- Full bash PTY via WebSocket
-- Quick Actions — run predefined commands or create your own
-- System stats, git status, search across files
-- File tree view, command palette (Ctrl+Shift+P)
-- Dark/light theme, resizable panes
-- Drag to move files, archive/extract zip
+---
 
-## Security
+### What's inside
 
-This is made for ephemeral runners — no auth by default, full shell access. On public repos, always enable login and set credentials as secrets. The workspace defaults to `/home/runner/work` to limit exposure.
+- File manager — browse, upload, download, edit, rename, delete files
+- Terminal — full bash session via WebSocket (xterm.js + node-pty)
+- Quick Actions — predefined commands, or add your own
+- System stats, git status, full-text search
+- File tree, command palette (`Ctrl+Shift+P`)
+- Zip archive & extract, drag to move files
+- Dark & light themes, resizable panes
+- Optional login auth with 5-min session
 
-## Env Vars
+### Files
 
-| Var | Default | Description |
-|-----|---------|-------------|
+```
+backend/server.js          Express + WebSocket server
+public/                    Frontend (html, css, js)
+quick_actions.json         Default quick commands
+.github/workflows/         GitHub Actions workflow
+```
+
+### Env
+
+| Var | Default | |
+|-----|---------|-|
 | `PORT` | `8080` | Server port |
-| `WORKSPACE_DIR` | `~/work` | File manager root |
-| `USERNAME` | — | Login username (enables auth) |
-| `PASSWORD` | — | Login password (enables auth) |
+| `WORKSPACE_DIR` | `~/work` | Root directory for file manager |
+| `USERNAME` | — | Enables login auth |
+| `PASSWORD` | — | Enables login auth |
 
-## Structure
+---
 
-```
-backend/         Express server, file API, WebSocket terminal
-public/          Frontend (html, css, js)
-quick_actions.json     Default quick commands
-.github/workflows/     GitHub Actions workflow
-```
-
-MIT
+> Built for ephemeral runners — no auth by default, full shell access.  
+> Always enable login on public repos. MIT license.
