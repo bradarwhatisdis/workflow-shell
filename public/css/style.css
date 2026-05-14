@@ -2,6 +2,35 @@
   margin: 0; padding: 0; box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s var(--ease), color 0.3s var(--ease);
+}
+
+::selection {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  animation: appFadeIn 0.4s var(--ease-out);
+}
+
+@keyframes appFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 :root {
   --bg-primary: #0b0d15;
   --bg-secondary: #11131f;
@@ -101,6 +130,7 @@ html, body {
   z-index: 100;
   gap: 12px;
   user-select: none;
+  transition: background 0.3s var(--ease), border-color 0.3s var(--ease);
 }
 
 .topbar-left {
@@ -163,13 +193,18 @@ html, body {
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s var(--ease);
+  transition: all 0.2s var(--ease-bounce);
   border: 1px solid transparent;
 }
 
 .search-toggle:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.search-toggle:active {
+  transform: translateY(0) scale(0.92);
 }
 
 .search-toggle.active {
@@ -190,18 +225,35 @@ html, body {
   align-items: center;
   justify-content: center;
   font-size: 0.9rem;
-  transition: all 0.15s var(--ease);
+  transition: all 0.2s var(--ease-bounce);
   position: relative;
+  overflow: hidden;
+}
+
+.topbar-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-subtle);
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
 }
 
 .topbar-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--border-color);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.topbar-btn:hover::after {
+  opacity: 1;
 }
 
 .topbar-btn:active {
-  transform: scale(0.93);
+  transform: translateY(0) scale(0.92);
 }
 
 .topbar-divider {
@@ -230,13 +282,14 @@ html, body {
   min-width: 220px;
   border-right: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  transition: width 0.1s var(--ease);
+  transition: width 0.15s var(--ease), background 0.3s var(--ease), border-color 0.3s var(--ease);
 }
 
 .terminal-pane {
   flex: 1;
   background: var(--bg-primary);
   min-width: 300px;
+  transition: background 0.3s var(--ease);
 }
 
 .pane-header {
@@ -253,6 +306,7 @@ html, body {
   flex-shrink: 0;
   background: var(--bg-tertiary);
   user-select: none;
+  transition: background 0.3s var(--ease), border-color 0.3s var(--ease), color 0.3s var(--ease);
 }
 
 .pane-header i {
@@ -276,16 +330,22 @@ html, body {
   cursor: pointer;
   color: var(--text-muted);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  transition: all 0.15s var(--ease);
+  transition: all 0.2s var(--ease-bounce);
   border-bottom: 2px solid transparent;
   text-transform: none;
   letter-spacing: 0;
   font-weight: 500;
+  position: relative;
 }
 
 .pane-tab:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+
+.pane-tab:active {
+  transform: translateY(0);
 }
 
 .pane-tab.active {
@@ -367,6 +427,13 @@ html, body {
 .file-toolbar {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
+  animation: slideDown 0.2s var(--ease-out);
+  transform-origin: top;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: scaleY(0.8); max-height: 0; }
+  to { opacity: 1; transform: scaleY(1); max-height: 100px; }
 }
 
 .search-box {
@@ -468,13 +535,14 @@ html, body {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: var(--radius-xs);
-  transition: all 0.15s var(--ease);
+  transition: all 0.15s var(--ease-bounce);
   white-space: nowrap;
 }
 
 .breadcrumb-item:hover {
   color: var(--accent);
   background: var(--accent-subtle);
+  transform: translateY(-1px);
 }
 
 .breadcrumb-item.active {
@@ -526,25 +594,29 @@ html, body {
   gap: 8px;
   padding: 6px 12px;
   cursor: pointer;
-  transition: background 0.12s var(--ease);
-  animation: fileItemIn 0.2s var(--ease-out) forwards;
+  transition: background 0.12s var(--ease), transform 0.15s var(--ease-bounce), box-shadow 0.15s var(--ease), border-color 0.12s var(--ease);
+  animation: fileItemIn 0.25s var(--ease-out) forwards;
   opacity: 0;
   position: relative;
   border-left: 2px solid transparent;
   min-height: 36px;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
 }
 
 .file-item:hover {
   background: var(--bg-hover);
+  transform: translateX(2px);
 }
 
 .file-item:active {
   background: var(--bg-active);
+  transform: translateX(0) scale(0.98);
 }
 
 .file-item.selected {
   background: var(--accent-subtle);
   border-left-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 252, 0.06);
 }
 
 .file-item .icon {
@@ -552,11 +624,12 @@ html, body {
   width: 20px;
   text-align: center;
   flex-shrink: 0;
-  transition: transform 0.2s var(--ease);
+  transition: transform 0.2s var(--ease-bounce), filter 0.2s var(--ease);
 }
 
 .file-item:hover .icon {
-  transform: scale(1.1);
+  transform: scale(1.2);
+  filter: brightness(1.2);
 }
 
 .file-item .icon.folder {
@@ -601,11 +674,13 @@ html, body {
   display: flex;
   gap: 1px;
   opacity: 0;
-  transition: opacity 0.12s var(--ease);
+  transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
+  transform: translateX(4px);
 }
 
 .file-item:hover .actions {
   opacity: 1;
+  transform: translateX(0);
 }
 
 .file-item .action-btn {
@@ -712,13 +787,14 @@ html, body {
   position: relative;
   flex-shrink: 0;
   z-index: 10;
-  transition: background 0.15s var(--ease);
+  transition: background 0.2s var(--ease-bounce);
 }
 
 .resizer:hover,
 .resizer.active {
   background: var(--accent);
   opacity: 0.6;
+  box-shadow: 0 0 12px rgba(124, 92, 252, 0.3);
 }
 
 .resizer::after {
@@ -731,12 +807,14 @@ html, body {
   height: 24px;
   background: var(--border-color);
   border-radius: 1px;
-  transition: background 0.15s var(--ease);
+  transition: all 0.2s var(--ease-bounce);
 }
 
 .resizer:hover::after,
 .resizer.active::after {
   background: white;
+  height: 40px;
+  box-shadow: 0 0 6px rgba(255,255,255,0.3);
 }
 
 .terminal-container {
@@ -793,14 +871,16 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  transition: all 0.15s var(--ease);
-  animation: fileItemIn 0.2s var(--ease-out) forwards;
+  transition: all 0.2s var(--ease-bounce);
+  animation: fileItemIn 0.25s var(--ease-out) forwards;
   opacity: 0;
 }
 
 .qa-card:hover {
   border-color: var(--border-color);
   background: var(--bg-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
 }
 
 .qa-card.default {
@@ -1127,12 +1207,16 @@ html, body {
   z-index: 1000;
   opacity: 0;
   visibility: hidden;
-  transition: all 0.2s var(--ease);
+  transition: all 0.25s var(--ease);
 }
 
 .modal-overlay.active {
   opacity: 1;
   visibility: visible;
+}
+
+[data-theme="light"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .modal {
@@ -1442,14 +1526,15 @@ html, body {
   box-shadow: var(--shadow-lg);
   z-index: 2000;
   opacity: 0;
-  transform: scale(0.92);
+  transform: scale(0.92) translateY(-4px);
   pointer-events: none;
-  transition: opacity 0.1s var(--ease), transform 0.12s var(--ease-bounce);
+  transition: opacity 0.12s var(--ease-out), transform 0.15s var(--ease-bounce);
+  transform-origin: top left;
 }
 
 .context-menu.visible {
   opacity: 1;
-  transform: scale(1);
+  transform: scale(1) translateY(0);
   pointer-events: auto;
 }
 
@@ -1620,11 +1705,11 @@ kbd {
 @keyframes fileItemIn {
   from {
     opacity: 0;
-    transform: translateX(-8px);
+    transform: translateX(-10px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateX(0) scale(1);
   }
 }
 
@@ -1636,6 +1721,29 @@ kbd {
 @keyframes fadeOut {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(124, 92, 252, 0.1); }
+  50% { box-shadow: 0 0 12px rgba(124, 92, 252, 0.25); }
+}
+
+@keyframes iconBounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+
+.status-dot {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+.qa-btn.run:hover i {
+  animation: iconBounce 0.4s var(--ease-bounce);
 }
 
 @media (max-width: 768px) {
