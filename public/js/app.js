@@ -107,6 +107,7 @@ async function loadDir(dirPath) {
   currentPath = dirPath;
   try {
     var data = await api('/api/files?path=' + encodeURIComponent(dirPath));
+    console.log('loadDir response:', data);
     renderFileList(data.items, data.path);
     updateBreadcrumb(data.path);
     cwdDisplay.innerHTML = '<i class="fas fa-folder"></i> ' + escapeHtml(data.path);
