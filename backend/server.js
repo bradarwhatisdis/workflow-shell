@@ -50,7 +50,7 @@ app.get('/api/files', (req, res) => {
       const stat = fs.statSync(full);
       return {
         name: item.name,
-        isDirectory: item.isDirectory(),
+        isDirectory: stat.isDirectory(),
         size: stat.isFile() ? stat.size : 0,
         modified: stat.mtime.toISOString(),
       };
