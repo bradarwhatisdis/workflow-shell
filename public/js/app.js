@@ -931,7 +931,7 @@ function renderQuickActions() {
       '</div>';
 
     card.querySelector('.qa-btn.run').addEventListener('click', function() {
-      runQuickAction(action.Command);
+      runQuickAction(action);
     });
 
     if (!isDefault) {
@@ -944,19 +944,47 @@ function renderQuickActions() {
   });
 }
 
-function runQuickAction(command) {
-  document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelector('.pane-tab[data-tab="terminal"]').classList.add('active');
-  document.getElementById('quick-actions-container').style.display = 'none';
-  document.getElementById('terminal-container').style.display = 'block';
+function runQuickAction(action) {
+  var overlay = document.getElementById('qa-runner-overlay');
+  var terminal = document.getElementById('terminal-container');
+  terminal.style.display = 'none';
+  overlay.style.display = 'flex';
 
-  if (window.sendToTerminal) {
-    window.sendToTerminal(command);
-    toast('Running: ' + command, 'fa-play', 'var(--success)');
-  } else {
-    toast('Terminal not connected', 'fa-circle-exclamation', 'var(--warning)');
-  }
+  document.getElementById('qa-runner-title').textContent = action.Command_Name;
+  document.getElementById('qa-runner-desc').textContent = action.Command_Description || 'No description';
+  document.getElementById('qa-runner-cmd').textContent = action.Command;
+
+  var outputEl = document.getElementById('qa-runner-output');
+  outputEl.innerHTML = '<div class="qa-runner-loading"><i class="fas fa-spinner fa-spin"></i> Running...</div>';
+
+  api('/api/quick-actions/run', {
+    method: 'POST',
+    body: JSON.stringify({ command: action.Command }),
+  }).then(function(data) {
+    if (data.success) {
+      outputEl.innerHTML = '<pre class="success">' + escapeHtml(data.output || '') + '</pre>';
+    } else {
+      var html = '';
+      if (data.output) html += '<pre class="success">' + escapeHtml(data.output) + '</pre>';
+      if (data.error) html += '<pre class="error">' + escapeHtml(data.error) + '</pre>';
+      if (!html) html = '<pre class="error">Command failed (exit code: ' + (data.exitCode || 1) + ')</pre>';
+      outputEl.innerHTML = html;
+    }
+  }).catch(function(err) {
+    outputEl.innerHTML = '<pre class="error">Error: ' + escapeHtml(err.message) + '</pre>';
+  });
 }
+
+function closeRunner() {
+  var overlay = document.getElementById('qa-runner-overlay');
+  var terminal = document.getElementById('terminal-container');
+  overlay.style.display = 'none';
+  terminal.style.display = 'block';
+  document.getElementById('qa-runner-output').innerHTML = '';
+}
+
+document.getElementById('qa-runner-close').addEventListener('click', closeRunner);
+document.getElementById('qa-runner-close-btn').addEventListener('click', closeRunner);
 
 function deleteQuickAction(name) {
   if (!confirm('Delete quick action "' + name + '"?')) return;

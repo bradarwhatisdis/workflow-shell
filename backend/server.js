@@ -230,6 +230,26 @@ app.delete('/api/quick-actions', (req, res) => {
   }
 });
 
+app.post('/api/quick-actions/run', (req, res) => {
+  try {
+    const { command } = req.body;
+    if (!command) {
+      return res.status(400).json({ error: 'command is required' });
+    }
+    const result = execSync(command, {
+      cwd: REPO_ROOT,
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf-8',
+    });
+    res.json({ success: true, output: result });
+  } catch (err) {
+    const output = err.stdout || '';
+    const errorOutput = err.stderr || err.message;
+    res.json({ success: false, output, error: errorOutput, exitCode: err.status || 1 });
+  }
+});
+
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws) => {
