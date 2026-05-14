@@ -622,12 +622,20 @@ async function renameDir(oldName, newName) {
 
 function showDeleteConfirm(name, isDir) {
   state.selectedFile = { name: name, isDir: isDir };
+  state.killConfirm = false;
   document.getElementById('confirm-text').textContent =
     (isDir ? 'Delete folder' : 'Delete file') + ' "' + name + '"? This cannot be undone.';
+  document.getElementById('confirm-action').textContent = (isDir ? 'Delete Folder' : 'Delete');
   dom.confirmModal.classList.add('active');
 }
 
 document.getElementById('confirm-action').addEventListener('click', function() {
+  if (state.killConfirm) {
+    state.killConfirm = false;
+    dom.confirmModal.classList.remove('active');
+    executeKill();
+    return;
+  }
   if (state.selectedFile) {
     var filePath = joinPath(state.currentPath, state.selectedFile.name);
     api('/api/file?path=' + encodeURIComponent(filePath), { method: 'DELETE' })
@@ -892,19 +900,27 @@ document.getElementById('refresh-btn').addEventListener('click', function() {
 });
 
 document.getElementById('kill-btn').addEventListener('click', function() {
-  if (confirm('Kill all processes and stop the workflow?\n\nThis will terminate the server, SSH tunnel, and all running processes.')) {
-    var btn = this;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    toast('Shutting down...', 'fa-power-off', 'var(--danger)');
-    api('/api/kill', { method: 'POST' }).then(function(d) {
-      toast(d.message || 'Goodbye!', 'fa-power-off', 'var(--danger)');
-    }).catch(function() {});
-    setTimeout(function() {
-      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg-primary);color:var(--text-muted);font-family:var(--font-sans)"><div style="text-align:center"><i class="fas fa-power-off" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block"></i><p>Workflow Shell terminated</p><p style="font-size:0.85rem;margin-top:8px;opacity:0.6">The server has been shut down.</p></div></div>';
-    }, 2000);
-  }
+  state.killConfirm = true;
+  state.selectedFile = null;
+  document.getElementById('confirm-text').innerHTML =
+    '<i class="fas fa-power-off" style="color:var(--danger);font-size:1.2rem;display:block;text-align:center;margin-bottom:12px"></i>' +
+    'Kill all processes and stop the workflow?<br><span style="font-size:0.82rem;color:var(--text-muted)">This will terminate the server and SSH tunnel.</span>';
+  document.getElementById('confirm-action').textContent = 'Shut Down';
+  dom.confirmModal.classList.add('active');
 });
+
+function executeKill() {
+  var btn = document.getElementById('kill-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  toast('Shutting down...', 'fa-power-off', 'var(--danger)');
+  api('/api/kill', { method: 'POST' }).then(function(d) {
+    toast(d.message || 'Goodbye!', 'fa-power-off', 'var(--danger)');
+  }).catch(function() {});
+  setTimeout(function() {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg-primary);color:var(--text-muted);font-family:var(--font-sans)"><div style="text-align:center"><i class="fas fa-power-off" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block"></i><p>Workflow Shell terminated</p><p style="font-size:0.85rem;margin-top:8px;opacity:0.6">The server has been shut down.</p></div></div>';
+  }, 3000);
+}
 
 document.getElementById('help-btn').addEventListener('click', toggleHelp);
 
