@@ -1227,15 +1227,11 @@ function renderTree(items, container, basePath) {
       div.appendChild(name);
       var childPath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
       div.addEventListener('click', function(e) {
-        if (e.target === toggle || toggle.contains(e.target)) {
-          var childrenContainer = div.nextElementSibling;
-          if (childrenContainer && childrenContainer.classList.contains('tree-children')) {
-            childrenContainer.style.display = childrenContainer.style.display === 'none' ? 'block' : 'none';
-            toggle.textContent = childrenContainer.style.display === 'none' ? '▸' : '▾';
-          }
-        } else {
-          switchFileTab('files');
-          loadDir(childPath);
+        var childrenContainer = div.nextElementSibling;
+        if (childrenContainer && childrenContainer.classList.contains('tree-children')) {
+          var isHidden = childrenContainer.style.display === 'none';
+          childrenContainer.style.display = isHidden ? 'block' : 'none';
+          toggle.textContent = isHidden ? '▾' : '▸';
         }
       });
       container.appendChild(div);
