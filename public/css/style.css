@@ -293,6 +293,7 @@ html, body {
 .bento-grid {
   display: grid;
   grid-template-columns: 300px 1fr;
+  grid-template-rows: 1fr;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -303,6 +304,7 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ── File Sidebar Panel ── */
