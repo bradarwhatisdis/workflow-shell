@@ -28,6 +28,9 @@ const SESSION_TTL = 5 * 60 * 1000;
 const sessions = new Map();
 let sessionId = 0;
 
+function now() { return new Date().toISOString().slice(11, 19); }
+const DBG = process.env.DEBUG ? console.log : function(){};
+
 function generateToken() {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let token = '';
@@ -45,19 +48,32 @@ function isPublicPath(p) {
 }
 
 function authMiddleware(req, res, next) {
-  if (!AUTH_ENABLED) return next();
-  if (isPublicPath(req.path)) return next();
+  DBG('[auth] --> ' + req.method + ' ' + req.path + ' (query: ' + JSON.stringify(req.query) + ')');
+  if (!AUTH_ENABLED) { DBG('[auth] auth disabled, pass through'); return next(); }
+  if (isPublicPath(req.path)) { DBG('[auth] public path, pass through'); return next(); }
 
   const token = req.headers['x-session-token'] || req.query.token;
-  if (token && sessions.has(token)) {
+  if (token) {
+    DBG('[auth] token present: ' + token.slice(0, 12) + '...');
     const entry = sessions.get(token);
-    if (Date.now() - entry.time < SESSION_TTL) {
-      entry.time = Date.now();
-      return next();
+    if (entry) {
+      const age = Date.now() - entry.time;
+      DBG('[auth] session found, age=' + age + 'ms, ttl=' + SESSION_TTL + 'ms');
+      if (age < SESSION_TTL) {
+        entry.time = Date.now();
+        DBG('[auth] session VALID, granted access');
+        return next();
+      }
+      DBG('[auth] session EXPIRED (age=' + age + 'ms), deleting');
+      sessions.delete(token);
+    } else {
+      DBG('[auth] session NOT FOUND in map (map size=' + sessions.size + ')');
     }
-    sessions.delete(token);
+  } else {
+    DBG('[auth] NO token in header or query');
   }
 
+  DBG('[auth] --> 401 UNAUTHORIZED');
   res.status(401).json({ error: 'Authentication required' });
 }
 
@@ -72,15 +88,19 @@ app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-a
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  DBG('[auth] POST /api/login user=' + (username || '(empty)') + ' auth=' + AUTH_ENABLED);
   if (!AUTH_ENABLED) {
+    DBG('[auth] login: auth disabled, returning empty token');
     return res.json({ token: '' });
   }
-  const { username, password } = req.body || {};
   if (username === AUTH_USER && password === AUTH_PASS) {
     const token = generateToken();
     sessions.set(token, { time: Date.now() });
+    DBG('[auth] login SUCCESS, generated token=' + token + ', session count=' + sessions.size);
     res.json({ token });
   } else {
+    DBG('[auth] login FAILED (bad creds)');
     res.status(401).json({ error: 'Invalid credentials' });
   }
 });
@@ -468,10 +488,13 @@ wss.on('connection', (ws, req) => {
   if (AUTH_ENABLED) {
     const params = new URL(req.url, 'http://localhost').searchParams;
     const token = params.get('token');
+    DBG('[auth] WS connect token=' + (token ? token.slice(0,12)+'...' : 'NONE') + ' sessions=' + sessions.size);
     if (!token || !sessions.has(token) || Date.now() - sessions.get(token).time >= SESSION_TTL) {
+      DBG('[auth] WS REJECTED');
       ws.close(4001, 'Authentication required');
       return;
     }
+    DBG('[auth] WS ACCEPTED');
     sessions.get(token).time = Date.now();
   }
 
@@ -510,4 +533,7 @@ wss.on('connection', (ws, req) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log('workflow-shell running on port ' + PORT);
   console.log('Workspace: ' + WORKSPACE);
+  console.log('DEBUG=' + (process.env.DEBUG || ''));
+  console.log('AUTH_ENABLED=' + AUTH_ENABLED + ' USER=' + AUTH_USER + ' PASS=' + (AUTH_PASS ? '***' : '(empty)'));
+  console.log('SESSION_TTL=' + SESSION_TTL + 'ms sessions=' + sessions.size);
 });
