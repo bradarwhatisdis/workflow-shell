@@ -16,10 +16,14 @@ echo "=========================================="
 echo "Working directory: $WORKDIR"
 echo ""
 
-# Start the backend server in background
+# Start the backend server in background (log to file AND workflow output)
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
+
+# Tail server logs to workflow output in background
+tail -f /tmp/workflow-shell.log 2>/dev/null &
+TAIL_PID=$!
 
 # Wait for server to be ready
 echo "Waiting for server to start..."
@@ -29,7 +33,8 @@ for i in {1..10}; do
     break
   fi
   if [ "$i" -eq 10 ]; then
-    echo "Server failed to start. Check /tmp/workflow-shell.log"
+    echo "Server failed to start."
+    cat /tmp/workflow-shell.log 2>/dev/null
     exit 1
   fi
   sleep 1
@@ -48,6 +53,7 @@ echo ""
 echo "=========================================="
 echo "  Workflow Shell is running!"
 echo "=========================================="
+echo "Server logs:"
 echo ""
-echo "Tunnel log:"
 wait "$TUNNEL_PID"
+kill "$TAIL_PID" 2>/dev/null || true
