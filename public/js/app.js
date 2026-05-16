@@ -147,6 +147,7 @@ async function api(url, options) {
   options = options || {};
   var headers = options.headers || {};
   headers['Content-Type'] = 'application/json';
+  headers['X-Pinggy-No-Screen'] = '1';
   var token = getSessionToken();
   if (token) headers['x-session-token'] = token;
   options.headers = headers;
