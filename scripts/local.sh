@@ -24,13 +24,10 @@ pkill -f "node backend/server.js" 2>/dev/null || true
 pkill -f "a.pinggy" 2>/dev/null || true
 sleep 1
 
-# Start backend (log to file AND terminal)
+# Start backend (log to file)
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
-
-tail -f /tmp/workflow-shell.log 2>/dev/null &
-TAIL_PID=$!
 
 # Wait for server
 echo "Waiting for server..."
@@ -51,10 +48,24 @@ echo ""
 echo "  Local:       http://localhost:8080"
 echo ""
 
-# Start pinggy tunnel
+# Start pinggy tunnel in background (capture output)
 echo "Starting tunnel via pinggy.io..."
-echo "Server logs:"
-echo ""
 ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 \
-    -p 443 -R 80:localhost:8080 a.pinggy.io
-kill "$TAIL_PID" 2>/dev/null || true
+    -p 443 -R 80:localhost:8080 a.pinggy.io > /tmp/tunnel.log 2>&1 &
+TUNNEL_PID=$!
+sleep 6
+
+echo ""
+echo "=========================================="
+grep -o 'https\?://[^[:space:]]*\.run\.pinggy-free\.link' /tmp/tunnel.log 2>/dev/null | head -1 || echo "Tunnel URL not found. Check /tmp/tunnel.log"
+echo ""
+echo "  Open the URL above, log in, then refresh to reproduce the bug."
+echo "  Press Ctrl+C to stop."
+echo "=========================================="
+echo ""
+
+# Show live server logs
+tail -f /tmp/workflow-shell.log &
+TAIL_PID=$!
+trap "kill $TAIL_PID $TUNNEL_PID 2>/dev/null; echo ''; echo '=== FULL SERVER LOG ==='; cat /tmp/workflow-shell.log 2>/dev/null" EXIT
+wait "$TUNNEL_PID" || true

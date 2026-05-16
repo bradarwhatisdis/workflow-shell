@@ -16,14 +16,10 @@ echo "=========================================="
 echo "Working directory: $WORKDIR"
 echo ""
 
-# Start the backend server in background (log to file AND workflow output)
+# Start the backend server in background (log to file)
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
-
-# Tail server logs to workflow output in background
-tail -f /tmp/workflow-shell.log 2>/dev/null &
-TAIL_PID=$!
 
 # Wait for server to be ready
 echo "Waiting for server to start..."
@@ -40,20 +36,22 @@ for i in {1..10}; do
   sleep 1
 done
 
-# Start tunnel via pinggy.io
+# Start tunnel via pinggy.io (background to avoid full-screen UI)
 echo ""
 echo "Starting tunnel via pinggy.io..."
-echo "Tunnel logs:"
-ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p 443 -R 80:localhost:8080 a.pinggy.io &
+ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 \
+    -p 443 -R 80:localhost:8080 a.pinggy.io > /tmp/tunnel.log 2>&1 &
 TUNNEL_PID=$!
-
-sleep 5
+sleep 6
 
 echo ""
 echo "=========================================="
-echo "  Workflow Shell is running!"
+TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.run\.pinggy-free\.link' /tmp/tunnel.log 2>/dev/null | head -1)
+echo "Tunnel URL: ${TUNNEL_URL:-http://localhost:8080}"
 echo "=========================================="
-echo "Server logs:"
 echo ""
-wait "$TUNNEL_PID"
-kill "$TAIL_PID" 2>/dev/null || true
+echo "Server logs (live):"
+tail -f /tmp/workflow-shell.log 2>/dev/null &
+TAIL_PID=$!
+trap "kill $TAIL_PID $TUNNEL_PID 2>/dev/null; echo ''; echo '=== FULL SERVER LOG ==='; cat /tmp/workflow-shell.log 2>/dev/null" EXIT
+wait "$TUNNEL_PID" || true
