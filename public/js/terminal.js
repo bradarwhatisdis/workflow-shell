@@ -11,7 +11,7 @@
 
   var term = new Terminal({
     fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
-    fontSize: 14,
+    fontSize: 15,
     cursorBlink: true,
     cursorStyle: 'bar',
     scrollback: 10000,

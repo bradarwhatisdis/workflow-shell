@@ -39,7 +39,7 @@ done
 echo ""
 echo "Starting tunnel via pinggy.io..."
 echo "Tunnel logs:"
-ssh -o StrictHostKeyChecking=no -p 443 -R 80:localhost:8080 a.pinggy.io &
+ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p 443 -R 80:localhost:8080 a.pinggy.io --noads &
 TUNNEL_PID=$!
 
 sleep 5
