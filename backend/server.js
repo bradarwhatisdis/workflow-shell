@@ -485,8 +485,8 @@ app.post('/api/kill', (req, res) => {
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
+  const params = new URL(req.url, 'http://localhost').searchParams;
   if (AUTH_ENABLED) {
-    const params = new URL(req.url, 'http://localhost').searchParams;
     const token = params.get('token');
     DBG('[auth] WS connect token=' + (token ? token.slice(0,12)+'...' : 'NONE') + ' sessions=' + sessions.size);
     if (!token || !sessions.has(token) || Date.now() - sessions.get(token).time >= SESSION_TTL) {
