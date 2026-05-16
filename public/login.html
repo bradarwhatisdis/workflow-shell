@@ -29,12 +29,14 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--accent-grad);
-      border-radius: var(--radius-xl);
-      color: white;
-      font-size: 1.6rem;
-      box-shadow: 0 4px 20px rgba(124, 92, 252, 0.3);
-      transition: box-shadow 0.3s var(--ease);
+      background: linear-gradient(135deg, #8b5cf6, #6d3de8);
+      border-radius: 14px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #fff;
+      letter-spacing: 0.02em;
+      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
     }
     .login-logo:hover {
       box-shadow: 0 6px 28px rgba(124, 92, 252, 0.45);
@@ -180,13 +182,11 @@
 </button>
 
 <div class="login-wrapper">
-  <div class="login-logo">
-    <i class="fas fa-terminal"></i>
-  </div>
+  <div class="login-logo">WS</div>
 
   <div>
     <div class="login-title">Workflow Shell</div>
-    <div class="login-subtitle">Sign in to access the remote shell</div>
+    <div class="login-subtitle" style="margin-top:3px">v1.0 &middot; Sign in to access the remote shell</div>
   </div>
 
   <div class="login-card">
