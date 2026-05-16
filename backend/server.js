@@ -505,7 +505,7 @@ wss.on('connection', (ws, req) => {
     cols: ptyCols,
     rows: ptyRows,
     cwd: WORKSPACE,
-    env: { ...process.env, TERM: 'xterm-256color' },
+    env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' },
   });
 
   ws.on('message', (data) => {
