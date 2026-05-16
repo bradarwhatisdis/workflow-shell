@@ -16,7 +16,8 @@ echo "=========================================="
 echo "Working directory: $WORKDIR"
 echo ""
 
-# Start the backend server in background (log to file)
+# Start the backend server in background (log to file), set WORKSPACE_DIR to repo root
+export WORKSPACE_DIR="$WORKDIR"
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"

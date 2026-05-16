@@ -24,7 +24,8 @@ pkill -f "node backend/server.js" 2>/dev/null || true
 pkill -f "a.pinggy" 2>/dev/null || true
 sleep 1
 
-# Start backend (log to file)
+# Start backend (log to file), set WORKSPACE_DIR to repo root
+export WORKSPACE_DIR="$WORKDIR"
 nohup node backend/server.js > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
