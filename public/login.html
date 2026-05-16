@@ -192,6 +192,11 @@
 </div>
 
 <script>
+var existingToken = localStorage.getItem('wfs-session-token');
+if (existingToken) {
+  window.location.replace('/');
+}
+
 var themeBtn = document.getElementById('theme-toggle-login');
 var storedTheme = localStorage.getItem('wfs-theme') || 'dark';
 document.documentElement.setAttribute('data-theme', storedTheme);
