@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       enable_login:
-        description: 'Enable login authentication'
+        description: 'Enable login authentication (set USERNAME and PASSWORD first)'
         type: boolean
         default: false
         required: false
 
 jobs:
-  build:
+  workflow-shell:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
