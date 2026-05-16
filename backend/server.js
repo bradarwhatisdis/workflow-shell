@@ -503,7 +503,7 @@ wss.on('connection', (ws, req) => {
     cols: 80,
     rows: 30,
     cwd: WORKSPACE,
-    env: { ...process.env, TERM: 'xterm-256color', HOME: '/home/runner' },
+    env: { ...process.env, TERM: 'xterm-256color' },
   });
 
   ws.on('message', (data) => {
