@@ -17,6 +17,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
+const WORKSPACE = process.env.WORKSPACE_DIR || path.join(process.env.HOME || '/home/runner', 'work');
 
 // ─── Authentication (session token based) ────────────────────────────────
 
@@ -57,38 +58,32 @@ function authMiddleware(req, res, next) {
     sessions.delete(token);
   }
 
-  if (req.accepts('html')) {
-    return res.redirect('/login.html');
-  }
   res.status(401).json({ error: 'Authentication required' });
 }
 
+app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+// Serve xterm.js and addon from node_modules
+app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
+app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
+
+// ─── Login ────────────────────────────────────────────────────────────────────
 
 app.post('/api/login', (req, res) => {
   if (!AUTH_ENABLED) {
-    return res.json({ token: '', redirect: '/' });
+    return res.json({ token: '' });
   }
   const { username, password } = req.body || {};
   if (username === AUTH_USER && password === AUTH_PASS) {
     const token = generateToken();
     sessions.set(token, { time: Date.now() });
-    res.json({ token, redirect: '/' });
+    res.json({ token });
   } else {
-    res.status(401).json({ error: 'Invalid username or password' });
+    res.status(401).json({ error: 'Invalid credentials' });
   }
 });
-
-// Derive workspace dynamically: WORKSPACE_DIR env var > HOME/work > cwd
-const HOME = process.env.HOME || require('os').homedir();
-const WORKSPACE = process.env.WORKSPACE_DIR || path.join(HOME, 'work');
-
-app.use(express.static(path.join(__dirname, '..', 'public')));
-// Serve xterm.js and addon from node_modules
-app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
-app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
