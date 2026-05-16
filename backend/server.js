@@ -29,7 +29,7 @@ const sessions = new Map();
 let sessionId = 0;
 
 function now() { return new Date().toISOString().slice(11, 19); }
-const DBG = process.env.DEBUG ? console.log : function(){};
+function DBG(...args) { console.error('[auth]', ...args); }
 
 function generateToken() {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
