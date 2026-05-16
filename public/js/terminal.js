@@ -15,6 +15,7 @@
     cursorBlink: true,
     cursorStyle: 'bar',
     scrollback: 10000,
+    allowTransparency: true,
     theme: {
       background: '#000000',
       foreground: '#e0e0e0',
@@ -40,31 +41,21 @@
     },
   });
 
-  // Build fit addon — try multiple constructor patterns
   var fitAddon;
   if (FitAddon && FitAddon.FitAddon) {
     fitAddon = new FitAddon.FitAddon();
   } else if (FitAddon) {
     fitAddon = new FitAddon();
   } else {
-    // Manual fit fallback if FitAddon unavailable
     fitAddon = { activate: function() {}, dispose: function() {} };
     console.warn('FitAddon not found, using manual fit fallback');
   }
 
-  // Always attach our own fit function so we control the logic
   var origFit = fitAddon.fit ? fitAddon.fit.bind(fitAddon) : null;
   fitAddon.fit = function() {
-    var cols, rows;
     if (origFit) {
-      try {
-        origFit();
-        return;
-      } catch(e) {
-        // fall through to manual fit
-      }
+      try { origFit(); return; } catch(e) {}
     }
-    // Manual calculation
     cols = Math.max(40, Math.floor((term.element.offsetWidth - 14) / 9));
     rows = Math.max(10, Math.floor((term.element.offsetHeight - 4) / 19));
     try { term.resize(cols, rows); } catch(e) {}
@@ -78,85 +69,107 @@
   }
   term.open(container);
 
-  // Initial fit after render
-  setTimeout(function() {
-    try { fitAddon.fit(); } catch(e) { console.warn('fit error:', e); }
-  }, 100);
+  var ws = null, termReady = false, buffer = [];
 
-  // ─── WebSocket Connection ──────────────────────────
-
-  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var token = localStorage.getItem('wfs-session-token') || '';
-  var wsUrl = protocol + '//' + location.host;
-  var params = [];
-  if (token) params.push('token=' + encodeURIComponent(token));
-  params.push('cols=' + term.cols);
-  params.push('rows=' + term.rows);
-  if (params.length) wsUrl += '?' + params.join('&');
-  var ws = new WebSocket(wsUrl);
-
-  var termReady = false;
-  var buffer = [];
-
-  ws.onopen = function() {
-    termReady = true;
-    for (var i = 0; i < buffer.length; i++) {
-      ws.send(JSON.stringify(buffer[i]));
-    }
-    buffer = [];
-    term.focus();
+  function connectWs() {
     try { fitAddon.fit(); } catch(e) {}
-  };
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var token = localStorage.getItem('wfs-session-token') || '';
+    var wsUrl = protocol + '//' + location.host;
+    var p = [];
+    if (token) p.push('token=' + encodeURIComponent(token));
+    p.push('cols=' + term.cols);
+    p.push('rows=' + term.rows);
+    wsUrl += '?' + p.join('&');
 
-  ws.onmessage = function(event) {
-    var msg = JSON.parse(event.data);
-    if (msg.type === 'output') {
-      term.write(msg.data);
-    } else if (msg.type === 'exit') {
-      term.write('\r\n[Session ended]\r\n');
-    }
-  };
+    ws = new WebSocket(wsUrl);
+    termReady = false;
 
-  ws.onclose = function() {
-    term.write('\r\n[Connection closed. Reconnecting...]\r\n');
-    setTimeout(function() { location.reload(); }, 3000);
-  };
+    ws.onopen = function() {
+      termReady = true;
+      for (var i = 0; i < buffer.length; i++) ws.send(JSON.stringify(buffer[i]));
+      buffer = [];
+      term.focus();
+    };
 
-  // ─── Terminal → Server ─────────────────────────────
+    ws.onmessage = function(event) {
+      var msg = JSON.parse(event.data);
+      if (msg.type === 'output') term.write(msg.data);
+      else if (msg.type === 'exit') term.write('\r\n[Session ended]\r\n');
+    };
+
+    ws.onclose = function() {
+      termReady = false;
+      term.write('\r\n[Disconnected. Reconnecting in 3s...]\r\n');
+      setTimeout(connectWs, 3000);
+    };
+  }
+
+  // Connect after a short delay so the DOM is settled
+  setTimeout(connectWs, 150);
+
+  // ─── Terminal Input ────────────────────────────────
 
   term.onData(function(data) {
-    var msg = { type: 'input', data: data };
-    if (termReady) {
-      ws.send(JSON.stringify(msg));
+    if (termReady && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: data }));
     } else {
-      buffer.push(msg);
+      buffer.push({ type: 'input', data: data });
     }
   });
 
   term.onResize(function(size) {
-    if (termReady && ws.readyState === WebSocket.OPEN) {
+    if (termReady && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
     }
   });
 
-  // ─── Fit on window resize ──────────────────────────
+  // ─── Window resize ─────────────────────────────────
 
   var resizeTimer;
   window.addEventListener('resize', function() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
       try { fitAddon.fit(); } catch(e) {}
-      if (termReady && ws.readyState === WebSocket.OPEN) {
+      if (termReady && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     }, 100);
   });
 
-  // ─── Focus terminal on click ────────────────────────
+  // ─── Keyboard shortcuts ────────────────────────────
+
+  container.addEventListener('keydown', function(e) {
+    // Ctrl+Shift+C → copy selection
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+      if (term.hasSelection()) {
+        document.execCommand('copy');
+        e.preventDefault();
+        return;
+      }
+    }
+    // Ctrl+Shift+V → paste
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+      navigator.clipboard.readText().then(function(text) {
+        if (termReady && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: text }));
+        }
+      });
+      e.preventDefault();
+      return;
+    }
+    // Ctrl+Shift+X, Ctrl+Shift+E, etc → send to terminal as regular input
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+      // Let these pass through to the terminal
+      return;
+    }
+  });
+
+  // ─── Focus on click ────────────────────────────────
 
   container.addEventListener('click', function() { term.focus(); });
 
-  // ─── Expose command sender for Quick Actions ────────
+  // ─── Expose command sender ─────────────────────────
 
   window.sendToTerminal = function(data) {
     var msg = { type: 'input', data: data + '\n' };
