@@ -18,10 +18,28 @@
       <span class="topbar-title">Workflow Shell</span>
       <span class="topbar-version">v1.0</span>
     </div>
-    <div class="topbar-center">
-      <nav class="breadcrumb" id="breadcrumb"></nav>
-    </div>
+    <nav class="topbar-nav" id="pane-tabs">
+      <span class="pane-tab active" data-tab="terminal">
+        <i class="fas fa-terminal"></i> Terminal
+      </span>
+      <span class="pane-tab" data-tab="quick-actions">
+        <i class="fas fa-bolt"></i> Actions
+      </span>
+      <span class="pane-tab" data-tab="stats">
+        <i class="fas fa-chart-simple"></i> Pipeline
+      </span>
+      <span class="pane-tab" data-tab="git">
+        <i class="fab fa-git-alt"></i> Git Graph
+      </span>
+      <span class="pane-tab" data-tab="search-results">
+        <i class="fas fa-search"></i> Search
+      </span>
+    </nav>
     <div class="topbar-right">
+      <div class="global-search-bar" id="global-search-bar">
+        <i class="fas fa-file-search" style="color:var(--text-muted);font-size:0.8rem"></i>
+        <input type="text" id="global-search-input" placeholder="Search in files..." spellcheck="false">
+      </div>
       <button class="duotone-btn search-toggle" id="search-toggle" title="Search files (Ctrl+F)">
         <i class="fas fa-search"></i>
       </button>
@@ -58,9 +76,9 @@
     </div>
   </header>
 
-  <div class="main-container">
+  <div class="bento-grid">
 
-    <aside class="pane file-pane" id="file-pane">
+    <aside class="panel panel-files" id="file-pane">
       <div class="pane-header">
         <div class="pane-header-left">
           <i class="fas fa-folder-open"></i>
@@ -77,6 +95,8 @@
           <span class="file-count-badge" id="file-count-badge"></span>
         </div>
       </div>
+
+      <nav class="breadcrumb" id="breadcrumb"></nav>
 
       <div class="file-toolbar" id="file-toolbar" style="display:none">
         <div class="search-box" id="search-box">
@@ -107,7 +127,6 @@
         <div class="file-tree-status" id="file-tree-status"></div>
       </div>
 
-      <!-- Connection status -->
       <div class="pane-footer">
         <span class="connection-status" id="connection-status">
           <span class="status-dot connected"></span>
@@ -118,24 +137,10 @@
 
     <div class="resizer" id="resizer"></div>
 
-    <main class="pane terminal-pane" id="terminal-pane">
+    <main class="panel panel-main" id="terminal-pane">
       <div class="pane-header">
-        <div class="pane-tabs" id="pane-tabs">
-          <span class="pane-tab active" data-tab="terminal">
-            <i class="fas fa-terminal"></i> Terminal
-          </span>
-          <span class="pane-tab" data-tab="quick-actions">
-            <i class="fas fa-bolt"></i> Actions
-          </span>
-          <span class="pane-tab" data-tab="stats">
-            <i class="fas fa-chart-simple"></i> Pipeline
-          </span>
-          <span class="pane-tab" data-tab="git">
-            <i class="fab fa-git-alt"></i> Git Graph
-          </span>
-          <span class="pane-tab" data-tab="search-results">
-            <i class="fas fa-search"></i> Search
-          </span>
+        <div class="pane-tabs" id="pane-tabs-header" style="display:none">
+          <!-- kept for JS compatibility, tabs moved to topbar -->
         </div>
         <span class="terminal-status" id="terminal-status">
           <span class="status-dot connected"></span>

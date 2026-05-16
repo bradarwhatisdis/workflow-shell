@@ -1031,11 +1031,9 @@ function runQuickAction(action) {
 }
 
 function closeRunner() {
-  var overlay = document.getElementById('qa-runner-overlay');
-  var terminal = document.getElementById('terminal-container');
-  overlay.style.display = 'none';
-  terminal.style.display = 'block';
+  document.getElementById('qa-runner-overlay').style.display = 'none';
   document.getElementById('qa-runner-output').innerHTML = '';
+  switchPaneTab('terminal');
 }
 
 document.getElementById('qa-runner-close').addEventListener('click', closeRunner);
@@ -1520,31 +1518,8 @@ document.getElementById('cmd-palette').addEventListener('click', function(e) {
 
 // ─── Global Search (topbar) ─────────────────────────────────────────────────
 
-var globalSearchHTML = '<div class="global-search-bar" id="global-search-bar">' +
-  '<i class="fas fa-file-search" style="color:var(--text-muted);font-size:0.8rem"></i>' +
-  '<input type="text" id="global-search-input" placeholder="Search in files..." spellcheck="false">' +
-  '</div>';
-
-var refreshBtn = document.getElementById('refresh-btn');
-refreshBtn.parentNode.insertBefore(createElementFromHTML(globalSearchHTML), refreshBtn);
-
-function createElementFromHTML(html) {
-  var div = document.createElement('div');
-  div.innerHTML = html;
-  return div.firstElementChild;
-}
-
 var globalSearchInput = document.getElementById('global-search-input');
 var globalSearchBar = document.getElementById('global-search-bar');
-
-document.querySelector('.search-toggle').addEventListener('click', function() {
-  globalSearchBar.classList.toggle('active');
-  if (globalSearchBar.classList.contains('active')) {
-    globalSearchInput.focus();
-  } else {
-    globalSearchInput.value = '';
-  }
-});
 
 globalSearchInput.addEventListener('input', function() {
   var val = this.value.trim();

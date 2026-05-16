@@ -17,161 +17,137 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 32px;
-      animation: appFadeIn 0.5s var(--ease-out);
+      gap: 28px;
       width: 100%;
-      max-width: 380px;
+      max-width: 360px;
       padding: 20px;
     }
     .login-logo {
-      width: 56px;
-      height: 56px;
+      width: 44px;
+      height: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #8b5cf6, #6d3de8);
-      border-radius: 14px;
-      font-family: 'Inter', sans-serif;
-      font-weight: 800;
-      font-size: 1.1rem;
-      color: #fff;
-      letter-spacing: 0.02em;
-      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
-    }
-    .login-logo:hover {
-      box-shadow: 0 6px 28px rgba(124, 92, 252, 0.45);
+      background: var(--text-primary);
+      color: var(--bg-primary);
+      border-radius: var(--radius-xs);
+      font-weight: 700;
+      font-size: 0.85rem;
     }
     .login-title {
-      font-size: 1.3rem;
-      font-weight: 700;
+      font-size: 1.2rem;
+      font-weight: 600;
       color: var(--text-primary);
       text-align: center;
     }
     .login-subtitle {
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: var(--text-muted);
       text-align: center;
-      margin-top: 6px;
+      margin-top: 4px;
     }
     .login-card {
       width: 100%;
-      background: var(--bg-elevated);
+      background: var(--bg-secondary);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-xl);
-      padding: 28px 24px;
-      box-shadow: var(--shadow-lg);
-      transition: background 0.3s var(--ease), border-color 0.3s var(--ease);
+      border-radius: var(--radius);
+      padding: 24px 20px;
     }
     .login-card .form-group {
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
     .login-card .form-group:last-of-type {
-      margin-bottom: 22px;
+      margin-bottom: 20px;
     }
     .login-card .form-group label {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 7px;
-      font-size: 0.82rem;
+      gap: 4px;
+      margin-bottom: 5px;
+      font-size: 0.78rem;
       color: var(--text-secondary);
       font-weight: 500;
     }
     .login-card .form-group label i {
-      font-size: 0.78rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
     }
     .login-card .form-group input {
       width: 100%;
-      padding: 10px 14px;
+      padding: 8px 12px;
       background: var(--bg-primary);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius);
+      border-radius: var(--radius-xs);
       color: var(--text-primary);
-      font-size: 0.92rem;
+      font-size: 0.88rem;
       outline: none;
-      transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+      transition: border-color 0.15s var(--ease);
       font-family: var(--font-sans);
     }
     .login-card .form-group input:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-subtle);
+      border-color: var(--text-muted);
     }
     .login-card .form-group input::placeholder {
       color: var(--text-muted);
     }
     .login-btn {
       width: 100%;
-      padding: 10px 20px;
-      background: var(--accent-grad);
-      color: white;
+      padding: 8px 16px;
+      background: var(--text-primary);
+      color: var(--bg-primary);
       border: none;
-      border-radius: var(--radius);
-      font-size: 0.92rem;
+      border-radius: var(--radius-xs);
+      font-size: 0.88rem;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      transition: all 0.2s var(--ease-bounce);
-      box-shadow: 0 2px 12px rgba(124, 92, 252, 0.25);
+      gap: 6px;
+      transition: opacity 0.15s var(--ease);
       font-family: var(--font-sans);
     }
-    .login-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(124, 92, 252, 0.35);
-    }
-    .login-btn:active {
-      transform: translateY(0) scale(0.97);
-    }
-    .login-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
+    .login-btn:hover { opacity: 0.85; }
+    .login-btn:active { opacity: 0.7; }
+    .login-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .login-error {
       display: none;
       align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
+      gap: 6px;
+      padding: 8px 12px;
       background: var(--danger-bg);
-      border: 1px solid rgba(239, 68, 68, 0.2);
-      border-radius: var(--radius);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xs);
       color: var(--danger);
-      font-size: 0.85rem;
-      margin-bottom: 16px;
-      animation: slideDown 0.2s var(--ease-out);
+      font-size: 0.82rem;
+      margin-bottom: 14px;
     }
-    .login-error.visible {
-      display: flex;
-    }
+    .login-error.visible { display: flex; }
     .login-footer {
-      font-size: 0.78rem;
+      font-size: 0.74rem;
       color: var(--text-muted);
       text-align: center;
     }
     .theme-toggle-login {
       position: fixed;
-      top: 16px;
-      right: 16px;
+      top: 12px;
+      right: 12px;
       background: none;
       border: 1px solid var(--border-color);
       color: var(--text-muted);
-      width: 38px;
-      height: 38px;
-      border-radius: var(--radius);
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-xs);
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1rem;
-      transition: all 0.2s var(--ease-bounce);
+      font-size: 0.9rem;
+      transition: all 0.12s var(--ease);
     }
     .theme-toggle-login:hover {
       background: var(--bg-hover);
       color: var(--text-primary);
-      transform: translateY(-1px);
     }
   </style>
 </head>
@@ -186,7 +162,7 @@
 
   <div>
     <div class="login-title">Workflow Shell</div>
-    <div class="login-subtitle" style="margin-top:3px">v1.0 &middot; Sign in to access the remote shell</div>
+    <div class="login-subtitle">v1.0 &middot; Sign in to access the remote shell</div>
   </div>
 
   <div class="login-card">

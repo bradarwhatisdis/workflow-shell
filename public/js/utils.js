@@ -1,7 +1,7 @@
 (function() {
   var resizer = document.getElementById('resizer');
   var filePane = document.getElementById('file-pane');
-  var mainContainer = document.querySelector('.main-container');
+  var mainContainer = document.querySelector('.bento-grid');
 
   if (!resizer || !filePane || !mainContainer) return;
 
