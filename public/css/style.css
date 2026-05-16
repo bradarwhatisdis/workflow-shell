@@ -553,16 +553,53 @@ html, body {
 }
 
 .skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: 28px;
   border-radius: var(--radius-xs);
-  animation: shimmer 1.2s infinite;
+  padding: 0 6px;
+}
+
+.skeleton-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  animation: pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeleton-bar {
+  height: 10px;
+  border-radius: 999px;
   background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
   background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-meta {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.skeleton-row:nth-child(odd) .skeleton-icon {
+  background: var(--bg-hover);
 }
 
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 /* ── File Toolbar ── */
