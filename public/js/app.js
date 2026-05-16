@@ -1259,11 +1259,8 @@ function renderTree(items, container, basePath) {
       div.appendChild(name);
       var filePath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
       div.addEventListener('click', function() {
-        switchFileTab('files');
-        // Navigate to parent and open the file
-        var parent = basePath;
-        state.currentPath = parent;
-        loadDir(parent);
+        state.currentPath = basePath;
+        openEditor(item.name);
       });
       container.appendChild(div);
     }
@@ -1650,6 +1647,5 @@ document.addEventListener('drop', function(e) {
 
 // ─── File Extension Viewer (preview handler) ────────────────────────────────
 
-// Enhanced icon mapping in getFileIcon already handles this
-
 loadDir('/');
+switchFileTab('tree');
