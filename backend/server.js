@@ -498,10 +498,12 @@ wss.on('connection', (ws, req) => {
     sessions.get(token).time = Date.now();
   }
 
+  const ptyCols = parseInt(params.get('cols'), 10) || 80;
+  const ptyRows = parseInt(params.get('rows'), 10) || 30;
   const ptyProcess = pty.spawn('/bin/bash', [], {
     name: 'xterm-256color',
-    cols: 80,
-    rows: 30,
+    cols: ptyCols,
+    rows: ptyRows,
     cwd: WORKSPACE,
     env: { ...process.env, TERM: 'xterm-256color' },
   });

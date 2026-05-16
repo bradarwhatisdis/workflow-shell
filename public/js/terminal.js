@@ -88,7 +88,11 @@
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var token = localStorage.getItem('wfs-session-token') || '';
   var wsUrl = protocol + '//' + location.host;
-  if (token) wsUrl += '?token=' + encodeURIComponent(token);
+  var params = [];
+  if (token) params.push('token=' + encodeURIComponent(token));
+  params.push('cols=' + term.cols);
+  params.push('rows=' + term.rows);
+  if (params.length) wsUrl += '?' + params.join('&');
   var ws = new WebSocket(wsUrl);
 
   var termReady = false;
