@@ -28,8 +28,7 @@ const SESSION_TTL = 5 * 60 * 1000;
 const sessions = new Map();
 let sessionId = 0;
 
-function now() { return new Date().toISOString().slice(11, 19); }
-function DBG(...args) { console.error('[auth]', ...args); }
+function DBG() {}
 
 function generateToken() {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -535,7 +534,4 @@ wss.on('connection', (ws, req) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log('workflow-shell running on port ' + PORT);
   console.log('Workspace: ' + WORKSPACE);
-  console.log('DEBUG=' + (process.env.DEBUG || ''));
-  console.log('AUTH_ENABLED=' + AUTH_ENABLED + ' USER=' + AUTH_USER + ' PASS=' + (AUTH_PASS ? '***' : '(empty)'));
-  console.log('SESSION_TTL=' + SESSION_TTL + 'ms sessions=' + sessions.size);
 });
