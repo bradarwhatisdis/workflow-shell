@@ -1429,7 +1429,7 @@ function switchPaneTab(tab) {
 
 var paletteActions = [
   { name: 'Search files...', desc: 'Filter current directory', icon: 'fa-search', action: function() { document.getElementById('search-toggle').click(); } },
-  { name: 'Search in files...', desc: 'Full-text search workspace', icon: 'fa-file-search', action: function() { document.querySelector('.topbar-btn[title*="Search"]').click(); } },
+  { name: 'Search in files...', desc: 'Full-text search workspace', icon: 'fa-file-search', action: function() { document.getElementById('search-toggle').click(); } },
   { name: 'New File', desc: 'Create a new file (Ctrl+N)', icon: 'fa-file-circle-plus', action: function() { showNewFile(); } },
   { name: 'New Folder', desc: 'Create a new directory', icon: 'fa-folder-plus', action: function() { document.getElementById('new-dir-btn').click(); } },
   { name: 'Upload File', desc: 'Upload files to current directory', icon: 'fa-upload', action: function() { document.getElementById('upload-btn').click(); } },
