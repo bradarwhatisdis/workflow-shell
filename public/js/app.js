@@ -661,6 +661,45 @@ document.getElementById('upload-modal-close').addEventListener('click', function
   dom.uploadModal.classList.remove('active');
 });
 
+document.getElementById('upload-url-btn').addEventListener('click', function() {
+  var urlInput = document.getElementById('upload-url-input');
+  var url = urlInput.value.trim();
+  if (!url) return;
+  urlInput.value = '';
+  uploadFromUrl(url);
+});
+
+document.getElementById('upload-url-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('upload-url-btn').click();
+});
+
+function uploadFromUrl(url) {
+  var progressContainer = document.getElementById('progress-items');
+  var item = document.createElement('div');
+  item.className = 'progress-item';
+  item.innerHTML =
+    '<span class="progress-text"><i class="fas fa-spinner fa-spin" style="color:var(--text-muted)"></i> ' + escapeHtml(url) + '</span>' +
+    '<div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>' +
+    '<span class="progress-text" id="pct-url">Fetching...</span>';
+  progressContainer.appendChild(item);
+
+  api('/api/upload/url', {
+    method: 'POST',
+    body: JSON.stringify({ url: url, path: state.currentPath }),
+  }).then(function(data) {
+    item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-check-circle" style="color:var(--success)"></i> ' + escapeHtml(data.filename);
+    item.querySelector('.progress-fill').style.width = '100%';
+    item.querySelector('.progress-text:last-child').textContent = 'Done';
+  }).catch(function(err) {
+    item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger)"></i> ' + escapeHtml(url);
+    item.querySelector('.progress-text:last-child').textContent = err.message;
+  });
+
+  var uploadProgressDiv = document.getElementById('upload-progress');
+  uploadProgressDiv.style.display = 'block';
+  dom.uploadModal.classList.add('active');
+}
+
 var dropzone = document.getElementById('dropzone');
 var fileInput = document.getElementById('file-input');
 var progressFill = document.getElementById('progress-fill');
@@ -733,6 +772,7 @@ function handleFiles(files) {
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
+    xhr.setRequestHeader('x-session-token', state.sessionToken || localStorage.getItem('wfs-session-token') || '');
 
     xhr.upload.addEventListener('progress', function(e) {
       if (e.lengthComputable) {
@@ -892,7 +932,8 @@ function closeEditor() {
 
 function downloadFile(fileName) {
   var filePath = joinPath(state.currentPath, fileName);
-  window.open('/api/download?path=' + encodeURIComponent(filePath), '_blank');
+  var token = state.sessionToken || localStorage.getItem('wfs-session-token') || '';
+  window.open('/api/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(token), '_blank');
 }
 
 document.getElementById('refresh-btn').addEventListener('click', function() {

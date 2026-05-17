@@ -227,6 +227,13 @@
       <button class="modal-close" id="upload-modal-close">&times;</button>
     </div>
     <div class="modal-body">
+      <div class="upload-url-section">
+        <div class="upload-url-row">
+          <input type="text" class="upload-url-input" id="upload-url-input" placeholder="Paste a direct download link..." spellcheck="false">
+          <button class="btn btn-primary btn-sm" id="upload-url-btn"><i class="fas fa-cloud-arrow-down"></i> Fetch</button>
+        </div>
+        <div class="upload-url-divider"><span>or</span></div>
+      </div>
       <div class="dropzone" id="dropzone">
         <div class="dropzone-icon"><i class="fas fa-cloud-arrow-up"></i></div>
         <p>Drag &amp; drop files here</p>
@@ -234,7 +241,7 @@
         <input type="file" id="file-input" multiple hidden>
       </div>
       <div class="upload-progress" id="upload-progress" style="display:none;">
-        <div class="progress-item" id="progress-items"></div>
+        <div class="progress-items" id="progress-items"></div>
       </div>
     </div>
   </div>

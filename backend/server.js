@@ -198,6 +198,28 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
+app.post('/api/upload/url', async (req, res) => {
+  try {
+    const { url, path: targetPath } = req.body;
+    if (!url) return res.status(400).json({ error: 'Missing url' });
+    const uploadDir = getSafePath(targetPath || '/');
+    if (!uploadDir) return res.status(400).json({ error: 'Invalid path' });
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+    const urlObj = new URL(url);
+    const fileName = path.basename(urlObj.pathname) || 'download';
+    const filePath = path.join(uploadDir, fileName);
+
+    const response = await fetch(url);
+    if (!response.ok) return res.status(400).json({ error: 'Failed to fetch URL: ' + response.status });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(filePath, buffer);
+    res.json({ success: true, filename: fileName });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/file', (req, res) => {
   try {
     const filePath = getSafePath(req.query.path);

@@ -1261,6 +1261,39 @@ html, body {
 .dropzone:hover, .dropzone.drag-over { border-color: var(--text-muted); background: var(--accent-subtle); color: var(--text-primary); }
 .dropzone-icon i { font-size: 2rem; opacity: 0.4; }
 .dropzone-hint { font-size: 0.72rem; opacity: 0.5; }
+
+.upload-url-section { margin-bottom: 12px; }
+.upload-url-row { display: flex; gap: 6px; }
+.upload-url-input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.15s var(--ease);
+}
+.upload-url-input:focus { border-color: var(--text-muted); }
+.upload-url-input::placeholder { color: var(--text-muted); }
+.upload-url-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.upload-url-divider::before,
+.upload-url-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
 .upload-progress { margin-top: 12px; }
 
 .progress-item {
