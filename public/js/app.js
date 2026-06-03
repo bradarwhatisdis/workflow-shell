@@ -584,36 +584,10 @@ async function renameFile(oldName, newName) {
   var oldPath = joinPath(state.currentPath, oldName);
   var newPath = joinPath(state.currentPath, newName);
   try {
-    var content = await api('/api/file?path=' + encodeURIComponent(oldPath));
-    await api('/api/file?path=' + encodeURIComponent(newPath), {
-      method: 'PUT',
-      body: JSON.stringify({ content: content.content }),
+    await api('/api/file/move', {
+      method: 'POST',
+      body: JSON.stringify({ from: oldPath, to: newPath }),
     });
-    await api('/api/file?path=' + encodeURIComponent(oldPath), { method: 'DELETE' });
-    toast('Renamed: ' + oldName + ' → ' + newName, 'fa-pencil', 'var(--success)');
-    loadDir(state.currentPath);
-  } catch (err) {
-    toast('Rename failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  }
-}
-
-async function renameDir(oldName, newName) {
-  var oldPath = joinPath(state.currentPath, oldName);
-  var newPath = joinPath(state.currentPath, newName);
-  try {
-    await api('/api/file?path=' + encodeURIComponent(newPath), {
-      method: 'PUT',
-      body: JSON.stringify({ _isDir: true }),
-    });
-    var items = await api('/api/files?path=' + encodeURIComponent(oldPath));
-    for (var i = 0; i < (items.items || []).length; i++) {
-      var item = items.items[i];
-      await api('/api/file?path=' + encodeURIComponent(joinPath(oldPath, item.name)), {
-        method: 'PUT',
-        body: JSON.stringify({ content: (await api('/api/file?path=' + encodeURIComponent(joinPath(oldPath, item.name)))).content }),
-      });
-    }
-    await api('/api/file?path=' + encodeURIComponent(oldPath), { method: 'DELETE' });
     toast('Renamed: ' + oldName + ' → ' + newName, 'fa-pencil', 'var(--success)');
     loadDir(state.currentPath);
   } catch (err) {
@@ -772,7 +746,7 @@ function handleFiles(files) {
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
-    xhr.setRequestHeader('x-session-token', state.sessionToken || localStorage.getItem('wfs-session-token') || '');
+    xhr.setRequestHeader('x-session-token', getSessionToken());
 
     xhr.upload.addEventListener('progress', function(e) {
       if (e.lengthComputable) {
@@ -920,6 +894,13 @@ document.getElementById('editor-save').addEventListener('click', function() {
   saveEditor(fileName);
 });
 
+window.addEventListener('beforeunload', function(e) {
+  if (state.editorInstance && state.editorInstance.getValue() !== state.editingOriginalContent) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 function closeEditor() {
   if (!state.editorInstance) { dom.editorModal.classList.remove('active'); return; }
   if (state.editorInstance.getValue() !== state.editingOriginalContent) {
@@ -932,7 +913,7 @@ function closeEditor() {
 
 function downloadFile(fileName) {
   var filePath = joinPath(state.currentPath, fileName);
-  var token = state.sessionToken || localStorage.getItem('wfs-session-token') || '';
+  var token = getSessionToken();
   window.open('/api/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(token), '_blank');
 }
 
@@ -1177,8 +1158,8 @@ timerInfoBtn.addEventListener('click', function(e) {
     timerTooltip.innerHTML =
       '<h4><i class="fas fa-clock"></i> Workflow Timeout</h4>' +
       '<p>The workflow has a timeout limit. When this time is reached, the runner is automatically terminated.</p>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Current workflow</span><span class="timer-tip-value">30 min</span></div>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Run step limit</span><span class="timer-tip-value">25 min</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Current workflow</span><span class="timer-tip-value">360 min</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Run step limit</span><span class="timer-tip-value">360 min</span></div>' +
       '<div class="timer-tip-row"><span class="timer-tip-label">GitHub max (free)</span><span class="timer-tip-value">6 hours</span></div>' +
       '<div class="timer-tip-row"><span class="timer-tip-label">Self-hosted max</span><span class="timer-tip-value">35 days</span></div>';
     document.body.appendChild(timerTooltip);
@@ -1193,6 +1174,24 @@ document.addEventListener('click', function(e) {
   if (timerTooltip && !e.target.closest('.session-timer')) {
     timerTooltip.classList.remove('visible');
   }
+});
+
+// ─── Logout ─────────────────────────────────────────────────────────────────
+
+var token = getSessionToken();
+if (token) {
+  document.getElementById('logout-btn').style.display = 'inline-flex';
+}
+
+document.getElementById('logout-btn').addEventListener('click', function() {
+  api('/api/logout', { method: 'POST' }).then(function() {
+    localStorage.removeItem('wfs-session-token');
+    toast('Logged out', 'fa-right-from-bracket', 'var(--accent)');
+    setTimeout(function() { window.location.href = '/login.html'; }, 800);
+  }).catch(function() {
+    localStorage.removeItem('wfs-session-token');
+    window.location.href = '/login.html';
+  });
 });
 
 // ─── Theme Toggle ──────────────────────────────────────────────────────────
@@ -1297,6 +1296,8 @@ function renderTree(items, container, basePath) {
       var filePath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
       div.addEventListener('click', function() {
         state.currentPath = basePath;
+        switchFileTab('files');
+        loadDir(basePath);
         openEditor(item.name);
       });
       container.appendChild(div);
@@ -1664,23 +1665,6 @@ document.addEventListener('drop', function(e) {
     toast('Move failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
   });
 });
-
-// ─── Auto-refresh via fs.watch ─────────────────────────────────────────────
-
-(function() {
-  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var token = getSessionToken();
-  var url = protocol + '//' + location.host + '/watch';
-  if (token) url += '?token=' + encodeURIComponent(token);
-  // Try to connect to a watch endpoint (best-effort)
-  try {
-    var watchWs = new WebSocket(url);
-    watchWs.onmessage = function() {
-      loadDir(state.currentPath);
-    };
-    watchWs.onclose = function() {};
-  } catch(e) {}
-})();
 
 // ─── File Extension Viewer (preview handler) ────────────────────────────────
 
