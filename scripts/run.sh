@@ -40,7 +40,7 @@ done
 # Start tunnel via pinggy.io (background to avoid full-screen UI)
 echo ""
 echo "Starting tunnel via pinggy.io..."
-ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 \
+ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
     -p 443 -R 80:localhost:8080 a.pinggy.io > /tmp/tunnel.log 2>&1 &
 TUNNEL_PID=$!
 sleep 6
