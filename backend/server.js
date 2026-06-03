@@ -1,11 +1,12 @@
 const express = require('express');
 const http = require('http');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { execSync } = require('child_process');
+const { execFileSync, execSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const QUICK_ACTIONS_PATH = path.join(REPO_ROOT, 'quick_actions.json');
@@ -26,20 +27,23 @@ const AUTH_PASS = process.env.PASSWORD || '';
 const AUTH_ENABLED = !!(AUTH_USER && AUTH_PASS);
 const SESSION_TTL = 5 * 60 * 1000;
 const sessions = new Map();
-let sessionId = 0;
 
-function DBG() {}
+const MAX_LOGIN_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 60 * 1000;
+const loginAttempts = new Map();
 
 function generateToken() {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let token = '';
-  for (let i = 0; i < 32; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return 'sess_' + token;
+  return 'sess_' + crypto.randomBytes(24).toString('hex');
 }
 
-const PUBLIC_PATHS = ['/login.html', '/api/login', '/favicon.ico'];
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of sessions) {
+    if (now - entry.time >= SESSION_TTL) sessions.delete(token);
+  }
+}, 5 * 60 * 1000);
+
+const PUBLIC_PATHS = ['/login.html', '/api/login', '/api/logout', '/favicon.ico'];
 function isPublicPath(p) {
   if (PUBLIC_PATHS.includes(p)) return true;
   if (p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/vendor/')) return true;
@@ -47,32 +51,21 @@ function isPublicPath(p) {
 }
 
 function authMiddleware(req, res, next) {
-  DBG('[auth] --> ' + req.method + ' ' + req.path + ' (query: ' + JSON.stringify(req.query) + ')');
-  if (!AUTH_ENABLED) { DBG('[auth] auth disabled, pass through'); return next(); }
-  if (isPublicPath(req.path)) { DBG('[auth] public path, pass through'); return next(); }
+  if (!AUTH_ENABLED) return next();
+  if (isPublicPath(req.path)) return next();
 
   const token = req.headers['x-session-token'] || req.query.token;
   if (token) {
-    DBG('[auth] token present: ' + token.slice(0, 12) + '...');
     const entry = sessions.get(token);
     if (entry) {
-      const age = Date.now() - entry.time;
-      DBG('[auth] session found, age=' + age + 'ms, ttl=' + SESSION_TTL + 'ms');
-      if (age < SESSION_TTL) {
+      if (Date.now() - entry.time < SESSION_TTL) {
         entry.time = Date.now();
-        DBG('[auth] session VALID, granted access');
         return next();
       }
-      DBG('[auth] session EXPIRED (age=' + age + 'ms), deleting');
       sessions.delete(token);
-    } else {
-      DBG('[auth] session NOT FOUND in map (map size=' + sessions.size + ')');
     }
-  } else {
-    DBG('[auth] NO token in header or query');
   }
 
-  DBG('[auth] --> 401 UNAUTHORIZED');
   res.status(401).json({ error: 'Authentication required' });
 }
 
@@ -86,33 +79,53 @@ app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-a
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
+function loginRateLimit(req) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const now = Date.now();
+  let entry = loginAttempts.get(ip);
+  if (!entry || now - entry.window > LOGIN_WINDOW_MS) {
+    entry = { count: 0, window: now };
+    loginAttempts.set(ip, entry);
+  }
+  entry.count++;
+  return entry.count <= MAX_LOGIN_ATTEMPTS;
+}
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
-  DBG('[auth] POST /api/login user=' + (username || '(empty)') + ' auth=' + AUTH_ENABLED);
-  if (!AUTH_ENABLED) {
-    DBG('[auth] login: auth disabled, returning empty token');
-    return res.json({ token: '' });
+  if (!AUTH_ENABLED) return res.json({ token: '' });
+
+  if (!loginRateLimit(req)) {
+    return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
   }
+
   if (username === AUTH_USER && password === AUTH_PASS) {
     const token = generateToken();
     sessions.set(token, { time: Date.now() });
-    DBG('[auth] login SUCCESS, generated token=' + token + ', session count=' + sessions.size);
     res.json({ token });
   } else {
-    DBG('[auth] login FAILED (bad creds)');
     res.status(401).json({ error: 'Invalid credentials' });
   }
+});
+
+app.post('/api/logout', (req, res) => {
+  const token = req.headers['x-session-token'] || req.query.token;
+  if (token) sessions.delete(token);
+  res.json({ success: true });
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function getSafePath(reqPath) {
   if (!reqPath) return path.resolve(WORKSPACE);
-  // Normalize: strip leading slash for safe joining
   const clean = reqPath.startsWith('/') ? reqPath.slice(1) : reqPath;
   const fullPath = path.resolve(WORKSPACE, clean || '.');
   if (!fullPath.startsWith(path.resolve(WORKSPACE))) return null;
   return fullPath;
+}
+
+function sanitizeFilename(name) {
+  return path.basename(name).replace(/[/\\]/g, '_');
 }
 
 // ─── File Manager API ──────────────────────────────────────────────────────
@@ -178,24 +191,23 @@ app.put('/api/file', (req, res) => {
   }
 });
 
-app.post('/api/upload', (req, res) => {
-  try {
-    const uploadDir = getSafePath(req.body.path || '/');
-    if (!uploadDir) return res.status(400).json({ error: 'Invalid path' });
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const uploadMiddleware = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = getSafePath(req.body.path || '/') || WORKSPACE;
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => cb(null, sanitizeFilename(file.originalname)),
+  }),
+}).single('file');
 
-    const storage = multer.diskStorage({
-      destination: (req, file, cb) => cb(null, uploadDir),
-      filename: (req, file, cb) => cb(null, file.originalname),
-    });
-    const upload = multer({ storage }).single('file');
-    upload(req, res, (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true, filename: req.file.originalname });
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.post('/api/upload', (req, res) => {
+  uploadMiddleware(req, res, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    res.json({ success: true, filename: req.file.filename });
+  });
 });
 
 app.post('/api/upload/url', async (req, res) => {
@@ -207,7 +219,7 @@ app.post('/api/upload/url', async (req, res) => {
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
     const urlObj = new URL(url);
-    const fileName = path.basename(urlObj.pathname) || 'download';
+    const fileName = sanitizeFilename(path.basename(urlObj.pathname) || 'download');
     const filePath = path.join(uploadDir, fileName);
 
     const response = await fetch(url);
@@ -270,9 +282,9 @@ function writeQuickActions(actions) {
 
 function gitCommitAndPush(message) {
   try {
-    execSync('git add quick_actions.json', { cwd: REPO_ROOT, stdio: 'pipe' });
-    execSync('git commit -m "' + message.replace(/"/g, '\\"') + '"', { cwd: REPO_ROOT, stdio: 'pipe' });
-    execSync('git push', { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync('git', ['add', 'quick_actions.json'], { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-m', message], { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync('git', ['push'], { cwd: REPO_ROOT, stdio: 'pipe' });
     return true;
   } catch (e) {
     return false;
@@ -423,8 +435,7 @@ app.get('/api/search', (req, res) => {
   try {
     const q = req.query.q;
     if (!q || q.length < 2) return res.json({ results: [] });
-    const safeQuery = q.replace(/["'`$]/g, '\\$&');
-    const output = execSync('grep -rn --binary-files=without-match "' + safeQuery + '" . 2>/dev/null | head -50', {
+    const output = execFileSync('grep', ['-rn', '--binary-files=without-match', q, '.'], {
       cwd: WORKSPACE, encoding: 'utf-8', maxBuffer: 1024 * 512, timeout: 10000,
     }).trim();
     if (!output) return res.json({ results: [] });
@@ -469,8 +480,7 @@ app.post('/api/archive', (req, res) => {
     const archivePath = path.join(WORKSPACE, archiveName);
     const safePaths = paths.map(p => getSafePath(p)).filter(Boolean);
     const relPaths = safePaths.map(p => path.relative(WORKSPACE, p));
-    const cmd = 'cd ' + WORKSPACE + ' && zip -r ' + archiveName + ' ' + relPaths.map(p => '"' + p.replace(/"/g, '\\"') + '"').join(' ');
-    execSync(cmd, { stdio: 'pipe', timeout: 30000 });
+    execFileSync('zip', ['-r', archiveName, ...relPaths], { cwd: WORKSPACE, stdio: 'pipe', timeout: 30000 });
     res.json({ success: true, file: archiveName });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -484,7 +494,7 @@ app.post('/api/extract', (req, res) => {
     const archivePath = getSafePath(archiveRel);
     if (!archivePath || !fs.existsSync(archivePath)) return res.status(404).json({ error: 'Archive not found' });
     const dest = path.dirname(archivePath);
-    execSync('cd "' + dest + '" && unzip -o "' + path.basename(archivePath) + '"', { stdio: 'pipe', timeout: 30000 });
+    execFileSync('unzip', ['-o', path.basename(archivePath)], { cwd: dest, stdio: 'pipe', timeout: 30000 });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -497,25 +507,39 @@ app.post('/api/kill', (req, res) => {
   res.json({ success: true, message: 'Shutting down workflow shell...' });
   console.log('Kill requested - shutting down...');
   setTimeout(() => {
-    try { execSync('pkill -9 -f "a.pinggy" 2>/dev/null; pkill -9 -f "ssh.*pinggy" 2>/dev/null; exit 0', { stdio: 'ignore' }); } catch (e) {}
-    try { execSync('pkill -9 -f "node backend/server" 2>/dev/null; exit 0', { stdio: 'ignore' }); } catch (e) {}
+    try { spawnSync('pkill', ['-9', '-f', '^ssh.*a\\.pinggy\\.io'], { stdio: 'ignore' }); } catch (e) {}
+    try { spawnSync('pkill', ['-9', '-f', 'node backend/server\\.js'], { stdio: 'ignore' }); } catch (e) {}
     process.exit(1);
   }, 1000);
 });
 
 // ─── Terminal WebSocket ────────────────────────────────────────────────────
 
+const WS_HEARTBEAT_INTERVAL = 30000;
+
 wss.on('connection', (ws, req) => {
+  const origin = req.headers.origin;
+  if (origin && AUTH_ENABLED) {
+    try {
+      const originHost = new URL(origin).host;
+      const serverHost = req.headers.host;
+      if (originHost !== serverHost && !originHost.endsWith('.pinggy-free.link')) {
+        ws.close(4001, 'Origin not allowed');
+        return;
+      }
+    } catch (e) {
+      ws.close(4001, 'Invalid origin');
+      return;
+    }
+  }
+
   const params = new URL(req.url, 'http://localhost').searchParams;
   if (AUTH_ENABLED) {
     const token = params.get('token');
-    DBG('[auth] WS connect token=' + (token ? token.slice(0,12)+'...' : 'NONE') + ' sessions=' + sessions.size);
     if (!token || !sessions.has(token) || Date.now() - sessions.get(token).time >= SESSION_TTL) {
-      DBG('[auth] WS REJECTED');
       ws.close(4001, 'Authentication required');
       return;
     }
-    DBG('[auth] WS ACCEPTED');
     sessions.get(token).time = Date.now();
   }
 
@@ -529,26 +553,50 @@ wss.on('connection', (ws, req) => {
     env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' },
   });
 
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
       if (msg.type === 'input') ptyProcess.write(msg.data);
       else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
-    } catch (e) { /* ignore malformed messages */ }
+    } catch (e) {
+      console.warn('WS message error:', e.message);
+    }
   });
 
   ptyProcess.onData((data) => {
-    try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {}
+    try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {
+      console.warn('WS send error:', e.message);
+    }
   });
 
   ptyProcess.onExit(() => {
-    try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {}
+    try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {
+      console.warn('WS send error:', e.message);
+    }
     try { ws.close(); } catch (e) {}
   });
 
   ws.on('close', () => {
     try { ptyProcess.kill(); } catch (e) {}
   });
+});
+
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      try { ws.terminate(); } catch (e) {}
+      return;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (e) {}
+  });
+}, WS_HEARTBEAT_INTERVAL);
+
+wss.on('close', () => {
+  clearInterval(heartbeatTimer);
 });
 
 // ─── Start ─────────────────────────────────────────────────────────────────
