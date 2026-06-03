@@ -95,16 +95,4 @@ document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
   });
 });
 
-var closeDebounce = {};
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') {
-    if (closeDebounce.escape) return;
-    closeDebounce.escape = true;
-    setTimeout(function() { closeDebounce.escape = false; }, 100);
-    document.querySelectorAll('.modal-overlay.active').forEach(function(m) {
-      m.classList.remove('active');
-    });
-  }
-});
-
 console.log('Workflow Shell loaded');

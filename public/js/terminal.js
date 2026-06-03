@@ -69,7 +69,7 @@
   }
   term.open(container);
 
-  var ws = null, termReady = false, buffer = [];
+  var ws = null, termReady = false, buffer = [], reconnectAttempt = 0;
 
   function connectWs() {
     try { fitAddon.fit(); } catch(e) {}
@@ -87,6 +87,7 @@
 
     ws.onopen = function() {
       termReady = true;
+      reconnectAttempt = 0;
       for (var i = 0; i < buffer.length; i++) ws.send(JSON.stringify(buffer[i]));
       buffer = [];
       term.focus();
@@ -100,8 +101,10 @@
 
     ws.onclose = function() {
       termReady = false;
-      term.write('\r\n[Disconnected. Reconnecting in 3s...]\r\n');
-      setTimeout(connectWs, 3000);
+      var delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+      reconnectAttempt++;
+      term.write('\r\n[Disconnected. Reconnecting in ' + (delay / 1000) + 's...]\r\n');
+      setTimeout(connectWs, delay);
     };
   }
 
@@ -143,7 +146,9 @@
     // Ctrl+Shift+C → copy selection
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
       if (term.hasSelection()) {
-        document.execCommand('copy');
+        navigator.clipboard.writeText(term.getSelection()).catch(function() {
+          document.execCommand('copy');
+        });
         e.preventDefault();
         return;
       }
