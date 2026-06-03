@@ -197,6 +197,10 @@ if (existingToken) {
   window.location.replace('/');
 }
 
+fetch('/api/cwd', { headers: { 'X-Pinggy-No-Screen': '1' } }).then(function(r) {
+  if (r.ok) window.location.replace('/');
+}).catch(function() {});
+
 var themeBtn = document.getElementById('theme-toggle-login');
 var storedTheme = localStorage.getItem('wfs-theme') || 'dark';
 document.documentElement.setAttribute('data-theme', storedTheme);
@@ -246,7 +250,7 @@ function doLogin() {
       if (result.status === 200 && result.data.token !== undefined) {
         if (result.data.token) {
           localStorage.setItem('wfs-session-token', result.data.token);
-          window.location.replace('/?token=' + encodeURIComponent(result.data.token));
+          window.location.replace('/');
         } else {
           window.location.replace('/');
         }
