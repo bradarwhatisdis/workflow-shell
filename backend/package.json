@@ -2,6 +2,7 @@
   "name": "workflow-shell",
   "version": "1.0.0",
   "description": "Web-based terminal and file manager for GitHub Actions runners",
+  "engines": { "node": ">=18" },
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
