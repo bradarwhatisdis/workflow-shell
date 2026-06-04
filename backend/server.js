@@ -797,10 +797,23 @@ function handleInstallWS(ws, url) {
 // ─── VNC WebSocket Proxy ─────────────────────────────────────────
 
 function handleVncWS(ws, url) {
+  const msgBuffer = [];
+
+  ws.on('message', (data) => {
+    msgBuffer.push(data);
+  });
+
   const tcp = net.connect(VNC_RFB_PORT, 'localhost', () => {
+    ws.removeAllListeners('message');
+
     ws.on('message', (data) => {
       try { tcp.write(Buffer.from(data)); } catch (e) {}
     });
+
+    for (const buffered of msgBuffer) {
+      try { tcp.write(Buffer.from(buffered)); } catch (e) {}
+    }
+    msgBuffer.length = 0;
 
     tcp.on('data', (data) => {
       try { ws.send(data); } catch (e) {}
