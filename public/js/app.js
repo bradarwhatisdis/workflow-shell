@@ -1480,7 +1480,6 @@ function activateDesktop() {
 
   var logContent = document.getElementById('install-log-content');
   var installView = document.getElementById('desktop-install');
-  var viewerEl = document.getElementById('desktop-viewer');
   var dot = document.getElementById('desktop-dot');
   var statusText = document.getElementById('desktop-status-text');
 
@@ -1519,8 +1518,8 @@ function activateDesktop() {
       var token = getSessionToken();
       var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token);
       var retries = 0;
-      var maxRetries = 60;
-      var retryDelay = 2000;
+      var maxRetries = 90;
+      var retryDelay = 3000;
 
       function probeVnc() {
         appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
@@ -1549,8 +1548,9 @@ function activateDesktop() {
           setStatus('connected', 'Desktop ready');
           appendLog('[Desktop connection established]\n');
           installView.style.display = 'none';
-          viewerEl.style.display = 'flex';
-          document.getElementById('desktop-iframe').src = '/desktop.html';
+          var openBtn = document.getElementById('desktop-open-tab');
+          openBtn.style.display = 'inline-flex';
+          openBtn.click();
         }
 
         // WebSocket upgrade alone doesn't mean VNC is ready.
@@ -1574,7 +1574,15 @@ function activateDesktop() {
 }
 
 document.getElementById('desktop-open-tab').addEventListener('click', function() {
-  window.open('/desktop.html', '_blank');
+  var params = new URLSearchParams({
+    host: location.hostname,
+    port: location.protocol === 'https:' ? 443 : 80,
+    path: 'vnc',
+    encrypt: location.protocol === 'https:' ? 1 : 0,
+    autoconnect: 1,
+    reconnect: 5,
+  });
+  window.open('/novnc/vnc.html?' + params.toString(), '_blank');
 });
 
 // ─── Update Notifications ──────────────────────────────────────────────────

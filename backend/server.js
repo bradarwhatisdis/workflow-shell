@@ -109,7 +109,7 @@ const NOVNC_DIR = '/opt/novnc';
 
 // ─── VNC / Install State ──────────────────────────────────────────
 
-const INSTALL_SCRIPT = path.join(__dirname, '..', 'scripts', 'install-xfce.sh');
+const INSTALL_SCRIPT = path.join(__dirname, '..', 'scripts', 'install-desktop.sh');
 const VNC_RFB_PORT = 5901;
 const installState = {
   running: false,
@@ -591,7 +591,7 @@ app.post('/api/extract', (req, res) => {
 function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(gnome-session|gnome-shell)']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
 
   const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'pipe' });
@@ -625,12 +625,19 @@ function startVNCServer() {
     }, delay);
   }
 
-  // Start desktop components in sequence: wm → panel → desktop
-  spawnDesktop('xfwm4', ['--display', ':1'], 2000);
-  spawnDesktop('xfce4-panel', [], 3000);
-  spawnDesktop('xfdesktop', [], 4000);
+  // Start GNOME desktop session
+  var gnomeEnv = {
+    ...desktopEnv,
+    XDG_SESSION_TYPE: 'x11',
+    XDG_CURRENT_DESKTOP: 'ubuntu:GNOME',
+    GNOME_SHELL_SESSION_MODE: 'ubuntu',
+    MUTTER_DEBUG_NUM_DUMMIES: 1,
+    MUTTER_DEBUG_DUMMY_MONITOR_SCALES: 1,
+    CLUTTER_BACKEND: 'x11',
+  };
+  spawnDesktop('gnome-session', ['--session=ubuntu'], 2000);
 
-  // Start x11vnc after all desktop components are up
+  // Start x11vnc after desktop session is up
   setTimeout(function() {
     const vnc = spawn('x11vnc', [
       '-display', ':1', '-forever', '-shared',
@@ -640,7 +647,7 @@ function startVNCServer() {
     vnc.on('exit', (code) => console.log('[x11vnc] exited with code ' + code));
     installState.vncProcesses.push(vnc);
     console.log('VNC server started on port ' + VNC_RFB_PORT);
-  }, 6000);
+  }, 15000);
 }
 
 function stopVNCServer() {
@@ -648,7 +655,7 @@ function stopVNCServer() {
   installState.vncProcesses = [];
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(gnome-session|gnome-shell)']); } catch (e) {}
 }
 
 // ─── Update Check ──────────────────────────────────────────────────────────
