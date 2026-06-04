@@ -648,6 +648,14 @@ function stopVNCServer() {
   try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
 }
 
+app.post('/api/update', (req, res) => {
+  res.json({ success: true, message: 'Pulling latest code and restarting server...' });
+  console.log('Update requested - pulling and restarting...');
+  stopVNCServer();
+  fs.writeFileSync('/tmp/workflow-restart-flag', '');
+  setImmediate(() => process.exit(0));
+});
+
 app.post('/api/kill', (req, res) => {
   res.json({ success: true, message: 'Shutting down workflow shell...' });
   console.log('Kill requested - shutting down...');

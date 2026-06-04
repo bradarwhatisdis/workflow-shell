@@ -102,8 +102,9 @@ echo "Server logs (live):"
 tail -f /tmp/workflow-shell.log 2>/dev/null &
 TAIL_PID=$!
 
-# Monitor the server PID — when it dies (shutdown), kill the tunnel and exit
-# This avoids hanging if the tunnel can't be killed by the server's own user.
+# Monitor and restart loop — when server dies, optionally restart for updates
+RESTART_FLAG="/tmp/workflow-restart-flag"
+rm -f "$RESTART_FLAG"
 cleanup() {
   kill ${TAIL_PID:-} ${TUNNEL_PID:-} ${SERVER_PID:-} 2>/dev/null || true
   echo ''
@@ -112,7 +113,40 @@ cleanup() {
 }
 trap cleanup EXIT
 
-while kill -0 "$SERVER_PID" 2>/dev/null; do
-  sleep 1
+while true; do
+  while kill -0 "$SERVER_PID" 2>/dev/null; do
+    sleep 1
+  done
+
+  if [ ! -f "$RESTART_FLAG" ]; then
+    echo "Server process exited. Shutting down..."
+    break
+  fi
+
+  rm -f "$RESTART_FLAG"
+  echo "Update requested — pulling latest code..."
+  git pull 2>&1 || echo "Warning: git pull failed"
+  echo "Restarting server..."
+
+  sudo -u "$USERNAME" env WORKSPACE_DIR="$WORKSPACE_DIR" HOME="$USER_HOME" \
+    nohup node "$WORKDIR/backend/server.js" >> /tmp/workflow-shell.log 2>&1 &
+  SERVER_PID=$!
+  echo "Server PID: $SERVER_PID"
+  echo "--- restart at $(date) ---" >> /tmp/workflow-shell.log
+
+  for i in {1..15}; do
+    if curl -s http://localhost:8080/api/cwd > /dev/null 2>&1; then
+      echo ""
+      echo "=========================================="
+      echo "Server restarted. Tunnel URL: $TUNNEL_URL"
+      echo "=========================================="
+      break
+    fi
+    if [ "$i" -eq 15 ]; then
+      echo "Server failed to restart."
+      cat /tmp/workflow-shell.log | tail -5
+      break
+    fi
+    sleep 1
+  done
 done
-echo "Server process exited. Shutting down..."
