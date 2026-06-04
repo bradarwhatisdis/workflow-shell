@@ -648,12 +648,57 @@ function stopVNCServer() {
   try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
 }
 
-app.post('/api/update', (req, res) => {
+// ─── Update Check ──────────────────────────────────────────────────────────
+
+const UPDATE_POLL_INTERVAL = 60000;
+const REPO_DIR = path.resolve(__dirname, '..');
+let updateStatus = {
+  currentCommit: '',
+  pending: [],
+  count: 0,
+  lastChecked: null,
+};
+
+function runGit(args) {
+  try { return execSync('git ' + args, { cwd: REPO_DIR, timeout: 15000, encoding: 'utf8' }).trim(); }
+  catch (e) { return ''; }
+}
+
+function checkForUpdates() {
+  var current = runGit('rev-parse HEAD');
+  if (!current) return;
+  updateStatus.currentCommit = current.substring(0, 7);
+
+  runGit('fetch origin --quiet');
+
+  var newHashes = runGit('rev-list HEAD..origin/main --reverse');
+  if (!newHashes) newHashes = runGit('rev-list HEAD..origin/master --reverse');
+  if (!newHashes) {
+    updateStatus.pending = [];
+    updateStatus.count = 0;
+    updateStatus.lastChecked = new Date().toISOString();
+    return;
+  }
+
+  updateStatus.pending = newHashes.split('\n').filter(Boolean).map(function(hash) {
+    return {
+      hash: hash.substring(0, 7),
+      message: runGit('log --format=%s -1 ' + hash),
+      files: (runGit('show --name-only --format="" ' + hash) || '').split('\n').filter(Boolean),
+    };
+  });
+  updateStatus.count = updateStatus.pending.length;
+  updateStatus.lastChecked = new Date().toISOString();
+}
+
+app.get('/api/update-status', function(req, res) { res.json(updateStatus); });
+
+app.post('/api/update', function(req, res) {
   res.json({ success: true, message: 'Pulling latest code and restarting server...' });
   console.log('Update requested - pulling and restarting...');
   stopVNCServer();
   fs.writeFileSync('/tmp/workflow-restart-flag', '');
-  setImmediate(() => process.exit(0));
+  setImmediate(function() { process.exit(0); });
 });
 
 app.post('/api/kill', (req, res) => {
@@ -904,6 +949,9 @@ wss.on('close', () => {
 });
 
 // ─── Start ─────────────────────────────────────────────────────────────────
+
+setTimeout(checkForUpdates, 3000);
+setInterval(checkForUpdates, UPDATE_POLL_INTERVAL);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('workflow-shell running on port ' + PORT);
