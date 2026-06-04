@@ -15,7 +15,7 @@ echo "[1/4] Updating package lists..."
 sudo apt-get update -qq 2>&1
 
 echo "[2/4] Installing XFCE4 and dependencies..."
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-terminal xvfb x11vnc 2>&1
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-terminal xvfb x11vnc dbus-x11 2>&1
 
 echo "[3/4] Setting up noVNC client..."
 if [ ! -d "/opt/novnc" ]; then
