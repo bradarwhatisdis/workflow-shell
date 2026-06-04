@@ -38,8 +38,8 @@
   </style>
 </head>
 <body>
-  <div id="vnc-screen"><div class="vnc-error"><i class="fas fa-display"></i><h2>Connecting to Desktop...</h2><p>Please wait while the VNC connection is established.</p></div></div>
-  <div id="vnc-status"><span class="status-dot connecting" id="status-dot"></span> <span id="status-text">Initializing...</span></div>
+  <div id="vnc-screen"></div>
+  <div id="vnc-status"><span class="status-dot connecting" id="status-dot"></span> <span id="status-text">Connecting to desktop...</span></div>
 
   <script type="module">
     import RFB from '/novnc/core/rfb.js';
@@ -57,6 +57,10 @@
       statusText.textContent = msg;
     }
 
+    function showError(title, detail) {
+      screenEl.innerHTML = '<div class="vnc-error"><i class="fas fa-display"></i><h2>' + title + '</h2><p>' + detail + '</p></div>';
+    }
+
     try {
       var rfb = new RFB(screenEl, wsUrl, { shared: true });
       rfb.scaleViewport = true;
@@ -68,15 +72,16 @@
 
       rfb.addEventListener('disconnect', function(e) {
         setStatus('error', 'Disconnected: ' + (e.detail.clean ? 'clean' : 'unexpected'));
+        showError('Disconnected', 'The VNC connection was lost.');
       });
 
       rfb.addEventListener('securityfailure', function(e) {
         setStatus('error', 'Security failure: ' + (e.detail.status || 'unknown'));
-        screenEl.innerHTML = '<div class="vnc-error"><i class="fas fa-shield-halved"></i><h2>Connection Failed</h2><p>' + (e.detail.status || 'Security failure') + '</p></div>';
+        showError('Connection Failed', e.detail.status || 'Security failure');
       });
     } catch (e) {
       setStatus('error', 'Failed to initialize VNC client');
-      screenEl.innerHTML = '<div class="vnc-error"><i class="fas fa-bug"></i><h2>Initialization Error</h2><p>' + e.message + '</p></div>';
+      showError('Initialization Error', e.message);
     }
   </script>
 </body>
