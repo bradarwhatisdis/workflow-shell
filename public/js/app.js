@@ -1746,5 +1746,31 @@ document.addEventListener('drop', function(e) {
 
 // ─── File Extension Viewer (preview handler) ────────────────────────────────
 
+// ─── Watch for file changes (hot reload) ────────────────────────────────────
+
+(function() {
+  function connectWatch() {
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var token = getSessionToken();
+    var wsUrl = protocol + '//' + location.host + '/watch/?token=' + encodeURIComponent(token);
+    var ws;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = function() {
+        loadDir(state.currentPath);
+      };
+      ws.onclose = function() {
+        setTimeout(connectWatch, 3000);
+      };
+      ws.onerror = function() {
+        setTimeout(connectWatch, 5000);
+      };
+    } catch (e) {
+      setTimeout(connectWatch, 5000);
+    }
+  }
+  connectWatch();
+})();
+
 loadDir('/');
 switchFileTab('tree');

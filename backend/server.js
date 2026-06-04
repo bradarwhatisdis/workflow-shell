@@ -118,6 +118,39 @@ const installState = {
   vncProcesses: [],
 };
 
+// ─── File Watcher ────────────────────────────────────────────────
+
+const watchClients = new Set();
+let fileWatcher = null;
+
+function startFileWatcher() {
+  try { if (fileWatcher) fileWatcher.close(); } catch (e) {}
+
+  if (!fs.existsSync(WORKSPACE)) {
+    console.warn('Workspace not found, file watcher disabled');
+    return;
+  }
+
+  let debounceTimer;
+  try {
+    fileWatcher = fs.watch(WORKSPACE, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+      const base = path.basename(filename);
+      if (base.startsWith('.') || base.startsWith('node_modules')) return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const msg = JSON.stringify({ type: 'change', path: filename });
+        watchClients.forEach(ws => {
+          try { ws.send(msg); } catch (e) {}
+        });
+      }, 200);
+    });
+    console.log('File watcher started on ' + WORKSPACE);
+  } catch (e) {
+    console.warn('File watcher error:', e.message);
+  }
+}
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 function loginRateLimit(req) {
@@ -629,6 +662,7 @@ wss.on('connection', (ws, req) => {
 
   if (pathname === '/install') return handleInstallWS(ws, url);
   if (pathname === '/vnc') return handleVncWS(ws, url);
+  if (pathname === '/watch') return handleWatchWS(ws, url);
 
   handleTerminalWS(ws, url);
 });
@@ -784,6 +818,14 @@ function handleVncWS(ws, url) {
   });
 }
 
+// ─── Watch WebSocket ────────────────────────────────────────────
+
+function handleWatchWS(ws, url) {
+  watchClients.add(ws);
+  ws.on('close', () => watchClients.delete(ws));
+  ws.on('error', () => watchClients.delete(ws));
+}
+
 const heartbeatTimer = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
@@ -804,4 +846,5 @@ wss.on('close', () => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log('workflow-shell running on port ' + PORT);
   console.log('Workspace: ' + WORKSPACE);
+  startFileWatcher();
 });
