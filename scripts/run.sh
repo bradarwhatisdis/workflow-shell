@@ -95,12 +95,17 @@ echo "Server logs (live):"
 tail -f /tmp/workflow-shell.log 2>/dev/null &
 TAIL_PID=$!
 
+# Monitor the server PID — when it dies (shutdown), kill the tunnel and exit
+# This avoids hanging if the tunnel can't be killed by the server's own user.
 cleanup() {
-  kill ${TAIL_PID:-} ${TUNNEL_PID:-} 2>/dev/null || true
+  kill ${TAIL_PID:-} ${TUNNEL_PID:-} ${SERVER_PID:-} 2>/dev/null || true
   echo ''
   echo '=== FULL SERVER LOG ==='
   cat /tmp/workflow-shell.log 2>/dev/null || true
 }
 trap cleanup EXIT
 
-wait "$TUNNEL_PID" 2>/dev/null || true
+while kill -0 "$SERVER_PID" 2>/dev/null; do
+  sleep 1
+done
+echo "Server process exited. Shutting down..."
