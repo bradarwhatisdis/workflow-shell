@@ -1452,12 +1452,90 @@ function switchPaneTab(tab) {
     stats: 'stats-container',
     git: 'git-container',
     'search-results': 'search-results-container',
+    desktop: 'desktop-container',
   };
   Object.keys(containers).forEach(function(key) {
     var el = document.getElementById(containers[key]);
-    if (el) el.style.display = key === tab ? 'flex' : 'none';
+    if (el) el.style.display = key === tab ? (key === 'terminal' ? 'flex' : 'block') : 'none';
   });
+  if (tab === 'desktop') activateDesktop();
 }
+
+// ─── Desktop / VNC ──────────────────────────────────────────────────────────
+
+var desktopActivated = false;
+var installWs = null;
+
+function activateDesktop() {
+  if (desktopActivated) return;
+  desktopActivated = true;
+
+  var logContent = document.getElementById('install-log-content');
+  var installView = document.getElementById('desktop-install');
+  var viewerEl = document.getElementById('desktop-viewer');
+  var dot = document.getElementById('desktop-dot');
+  var statusText = document.getElementById('desktop-status-text');
+
+  function setStatus(state, msg) {
+    dot.className = 'status-dot ' + state;
+    statusText.textContent = msg;
+  }
+
+  function appendLog(text) {
+    logContent.textContent += text;
+    logContent.scrollTop = logContent.scrollHeight;
+  }
+
+  setStatus('connecting', 'Installing XFCE4...');
+  appendLog('Connecting to installation service...\n');
+
+  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var token = getSessionToken();
+  var url = protocol + '//' + location.host + '/install/?token=' + encodeURIComponent(token);
+
+  installWs = new WebSocket(url);
+
+  installWs.onmessage = function(event) {
+    var msg = JSON.parse(event.data);
+    if (msg.type === 'log') {
+      appendLog(msg.data);
+    }
+  };
+
+  installWs.onclose = function() {
+    setStatus('connecting', 'Checking installation status...');
+    appendLog('\n[Connection closed. Checking if desktop is ready...]\n');
+
+    setTimeout(function() {
+      var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var token = getSessionToken();
+      var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token);
+      var testWs = new WebSocket(testUrl);
+      testWs.onopen = function() {
+        testWs.close();
+        setStatus('connected', 'Desktop ready');
+        installView.style.display = 'none';
+        viewerEl.style.display = 'flex';
+        document.getElementById('desktop-iframe').src = '/desktop.html';
+      };
+      testWs.onerror = function() {
+        appendLog('\n[Desktop is not available. You can retry by switching tabs.]\n');
+        setStatus('error', 'Desktop unavailable');
+        desktopActivated = false;
+      };
+    }, 1000);
+  };
+
+  installWs.onerror = function() {
+    appendLog('\n[Failed to connect to installation service]\n');
+    setStatus('error', 'Connection failed');
+    desktopActivated = false;
+  };
+}
+
+document.getElementById('desktop-open-tab').addEventListener('click', function() {
+  window.open('/desktop.html', '_blank');
+});
 
 // ─── Command Palette ────────────────────────────────────────────────────────
 
