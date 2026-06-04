@@ -671,8 +671,9 @@ function checkForUpdates() {
 
   runGit('fetch origin --quiet');
 
-  var newHashes = runGit('rev-list HEAD..origin/main --reverse');
-  if (!newHashes) newHashes = runGit('rev-list HEAD..origin/master --reverse');
+  var branch = runGit('rev-parse --abbrev-ref HEAD');
+  var remoteBranch = 'origin/' + branch;
+  var newHashes = runGit('rev-list HEAD..' + remoteBranch + ' --reverse');
   if (!newHashes) {
     updateStatus.pending = [];
     updateStatus.count = 0;

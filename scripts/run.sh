@@ -42,6 +42,7 @@ for dir in /home/runner/work/*/; do
   sudo chmod +x "$dir" 2>/dev/null || true
 done
 sudo chmod -R g+rx "$WORKDIR" 2>/dev/null || true
+sudo chmod -R g+rw "$WORKDIR/.git" 2>/dev/null || true
 echo "  Workspace: $WORKSPACE_DIR"
 echo ""
 
