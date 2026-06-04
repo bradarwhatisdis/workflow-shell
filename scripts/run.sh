@@ -105,7 +105,7 @@ TAIL_PID=$!
 
 # Monitor and restart loop — when server dies, optionally restart for updates
 RESTART_FLAG="/tmp/workflow-restart-flag"
-rm -f "$RESTART_FLAG"
+sudo rm -f "$RESTART_FLAG" 2>/dev/null || true
 cleanup() {
   kill ${TAIL_PID:-} ${TUNNEL_PID:-} ${SERVER_PID:-} 2>/dev/null || true
   echo ''
@@ -124,7 +124,7 @@ while true; do
     break
   fi
 
-  rm -f "$RESTART_FLAG"
+  sudo rm -f "$RESTART_FLAG" 2>/dev/null || true
   echo "Update requested — pulling latest code..."
   git pull 2>&1 || echo "Warning: git pull failed"
   echo "Restarting server..."

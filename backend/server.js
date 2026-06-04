@@ -611,6 +611,9 @@ function startVNCServer() {
   }
 
   var desktopEnv = { ...process.env, DISPLAY: ':1', ...dbusEnv };
+  var osHome = require('os').userInfo().homedir;
+  console.log('[desktop] process.env.HOME=' + process.env.HOME + ', os.userInfo().homedir=' + osHome + ', uid=' + process.getuid());
+  desktopEnv.HOME = osHome;
 
   function spawnDesktop(name, args, delay) {
     setTimeout(function() {
