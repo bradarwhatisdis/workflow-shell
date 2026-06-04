@@ -832,9 +832,10 @@ document.getElementById('newfile-name').addEventListener('keydown', function(e) 
 document.getElementById('editor-modal-close').addEventListener('click', closeEditor);
 
 function openEditor(fileName) {
+  state.editingFileName = fileName;
   var filePath = joinPath(state.currentPath, fileName);
   var nameEl = document.getElementById('editor-filename');
-  nameEl.textContent = fileName;
+  nameEl.innerHTML = '<i class="fas fa-file"></i> ' + escapeHtml(fileName);
 
   api('/api/file?path=' + encodeURIComponent(filePath))
     .then(function(data) {
@@ -861,15 +862,15 @@ function openEditor(fileName) {
         tabSize: 2,
         autofocus: true,
         extraKeys: {
-          'Ctrl-S': function() { saveEditor(fileName); },
-          'Cmd-S': function() { saveEditor(fileName); },
+          'Ctrl-S': function() { saveEditor(state.editingFileName); },
+          'Cmd-S': function() { saveEditor(state.editingFileName); },
         },
       });
 
       state.editorInstance.on('change', function() {
         nameEl.innerHTML =
           '<i class="fas fa-pen" style="font-size:0.8rem"></i> ' +
-          escapeHtml(fileName) +
+          escapeHtml(state.editingFileName) +
           ' <span style="color:var(--warning);font-size:0.75rem;font-weight:400;">(unsaved)</span>';
       });
 
@@ -889,15 +890,13 @@ function saveEditor(fileName) {
     body: JSON.stringify({ content: state.editorInstance.getValue() }),
   }).then(function() {
     state.editingOriginalContent = state.editorInstance.getValue();
-    document.getElementById('editor-filename').textContent = fileName;
+    document.getElementById('editor-filename').innerHTML = '<i class="fas fa-check-circle" style="color:var(--success)"></i> ' + escapeHtml(fileName);
     toast('Saved: ' + fileName, 'fa-check-circle', 'var(--success)');
   }).catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
 }
 
 document.getElementById('editor-save').addEventListener('click', function() {
-  var nameEl = document.getElementById('editor-filename');
-  var fileName = nameEl.textContent;
-  saveEditor(fileName);
+  saveEditor(state.editingFileName);
 });
 
 window.addEventListener('beforeunload', function(e) {
