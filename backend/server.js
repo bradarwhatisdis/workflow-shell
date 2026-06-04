@@ -592,20 +592,33 @@ function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
 
   const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'pipe' });
   xvfb.stderr.on('data', (d) => console.error('[xvfb]', d.toString().trim()));
   installState.vncProcesses.push(xvfb);
 
-  setTimeout(() => {
+  const dbusEnv = {};
+  try {
+    const dbusLaunch = spawnSync('dbus-launch');
+    dbusLaunch.stdout.toString().split('\n').forEach(function(line) {
+      var idx = line.indexOf('=');
+      if (idx > 0) dbusEnv[line.substring(0, idx)] = line.substring(idx + 1);
+    });
+    console.log('[dbus] session bus started: ' + (dbusEnv.DBUS_SESSION_BUS_ADDRESS || '(none)'));
+  } catch (e) {
+    console.error('[dbus] failed to start: ' + e.message);
+  }
+
+  setTimeout(function() {
     const session = spawn('xfce4-session', [], {
       stdio: 'pipe',
-      env: { ...process.env, DISPLAY: ':1' },
+      env: { ...process.env, DISPLAY: ':1', ...dbusEnv },
     });
     session.stderr.on('data', (d) => console.error('[xfce]', d.toString().trim()));
     installState.vncProcesses.push(session);
 
-    setTimeout(() => {
+    setTimeout(function() {
       const vnc = spawn('x11vnc', [
         '-display', ':1', '-forever', '-shared',
         '-rfbport', String(VNC_RFB_PORT), '-nopw',
