@@ -1493,7 +1493,7 @@ function activateDesktop() {
     logContent.scrollTop = logContent.scrollHeight;
   }
 
-  setStatus('connecting', 'Installing XFCE4...');
+  setStatus('connecting', 'Installing Ubuntu Desktop...');
   appendLog('Connecting to installation service...\n');
 
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
