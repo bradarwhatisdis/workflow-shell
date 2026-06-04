@@ -625,12 +625,8 @@ function stopVNCServer() {
 app.post('/api/kill', (req, res) => {
   res.json({ success: true, message: 'Shutting down workflow shell...' });
   console.log('Kill requested - shutting down...');
-  setTimeout(() => {
-    stopVNCServer();
-    try { spawnSync('pkill', ['-9', '-f', 'cloudflared'], { stdio: 'ignore' }); } catch (e) {}
-    try { spawnSync('pkill', ['-9', '-f', 'node backend/server'], { stdio: 'ignore' }); } catch (e) {}
-    process.exit(1);
-  }, 1000);
+  stopVNCServer();
+  setImmediate(() => process.exit(0));
 });
 
 // ─── WebSocket Router ────────────────────────────────────────────────────
