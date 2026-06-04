@@ -123,10 +123,16 @@ function toast(message, icon, color) {
   el.className = 'toast';
   el.innerHTML = '<i class="fas ' + icon + '" style="color:' + color + '"></i> <span>' + escapeHtml(message) + '</span>';
   dom.toastContainer.appendChild(el);
-  setTimeout(function() {
+
+  var dismiss = function() {
+    if (el.classList.contains('removing')) return;
     el.classList.add('removing');
     el.addEventListener('animationend', function() { el.remove(); });
-  }, 3000);
+  };
+
+  el.addEventListener('click', dismiss);
+
+  setTimeout(dismiss, 10000);
 }
 
 function getSessionToken() {
