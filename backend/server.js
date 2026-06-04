@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
+const chokidar = require('chokidar');
 const multer = require('multer');
 const { execFileSync, execSync, spawnSync, spawn } = require('child_process');
 
@@ -133,18 +134,28 @@ function startFileWatcher() {
 
   let debounceTimer;
   try {
-    fileWatcher = fs.watch(WORKSPACE, { recursive: true }, (eventType, filename) => {
-      if (!filename) return;
-      const base = path.basename(filename);
-      if (base.startsWith('.') || base.startsWith('node_modules')) return;
+    fileWatcher = chokidar.watch(WORKSPACE, {
+      ignored: /(^|[/\\])\..|node_modules/,
+      persistent: true,
+      ignoreInitial: true,
+    });
+
+    const notify = () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        const msg = JSON.stringify({ type: 'change', path: filename });
+        const msg = JSON.stringify({ type: 'change' });
         watchClients.forEach(ws => {
           try { ws.send(msg); } catch (e) {}
         });
       }, 200);
-    });
+    };
+
+    fileWatcher.on('add', notify);
+    fileWatcher.on('change', notify);
+    fileWatcher.on('unlink', notify);
+    fileWatcher.on('addDir', notify);
+    fileWatcher.on('unlinkDir', notify);
+
     console.log('File watcher started on ' + WORKSPACE);
   } catch (e) {
     console.warn('File watcher error:', e.message);
