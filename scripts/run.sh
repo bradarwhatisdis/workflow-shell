@@ -37,23 +37,24 @@ for i in {1..10}; do
   sleep 1
 done
 
-# Start tunnel via cloudflared (non-fatal if unavailable or fails)
+# Start tunnel via cloudflared
 echo ""
 echo "Starting tunnel via Cloudflare..."
-TUNNEL_URL=""
-TUNNEL_PID=""
-if command -v cloudflared &>/dev/null; then
-  cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
-  TUNNEL_PID=$!
-  sleep 5
-  TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || true)
-else
-  echo "cloudflared not found — install with: sudo apt install cloudflared"
+cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
+TUNNEL_PID=$!
+sleep 5
+
+TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || true)
+if [ -z "$TUNNEL_URL" ]; then
+  echo ""
+  echo "ERROR: Tunnel URL not found. cloudflared log:"
+  cat /tmp/tunnel.log 2>/dev/null
+  exit 1
 fi
 
 echo ""
 echo "=========================================="
-echo "Tunnel URL: ${TUNNEL_URL:-http://localhost:8080}"
+echo "Tunnel URL: $TUNNEL_URL"
 echo "=========================================="
 echo ""
 echo "Server logs (live):"
@@ -68,9 +69,4 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ -n "$TUNNEL_PID" ]; then
-  wait "$TUNNEL_PID" 2>/dev/null || true
-else
-  # keep running until server exits
-  wait "$SERVER_PID" 2>/dev/null || true
-fi
+wait "$TUNNEL_PID" 2>/dev/null || true
