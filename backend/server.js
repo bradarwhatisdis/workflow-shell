@@ -71,6 +71,7 @@ function authMiddleware(req, res, next) {
 }
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
@@ -78,14 +79,32 @@ app.use(authMiddleware);
 app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
 app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
 
-// Serve noVNC client files if available
+// Serve noVNC client files (auto-download if missing)
 const NOVNC_DIR = '/opt/novnc';
-if (fs.existsSync(NOVNC_DIR)) {
-  app.use('/novnc', express.static(NOVNC_DIR));
-  console.log('noVNC served from ' + NOVNC_DIR);
-} else {
-  console.log('noVNC not found at ' + NOVNC_DIR + ' — Desktop tab will be unavailable');
-}
+(function ensureNovnc() {
+  if (fs.existsSync(NOVNC_DIR + '/core/rfb.js')) {
+    app.use('/novnc', express.static(NOVNC_DIR));
+    console.log('noVNC served from ' + NOVNC_DIR);
+    return;
+  }
+  console.log('noVNC not found at ' + NOVNC_DIR + ' — attempting to download...');
+  try {
+    const tmp = '/tmp/novnc-repo';
+    spawnSync('rm', ['-rf', tmp]);
+    spawnSync('git', ['clone', '--depth', '1', 'https://github.com/novnc/noVNC.git', tmp], { stdio: 'pipe', timeout: 30000 });
+    spawnSync('mkdir', ['-p', path.dirname(NOVNC_DIR)]);
+    spawnSync('mv', [tmp, NOVNC_DIR], { stdio: 'pipe' });
+    spawnSync('rm', ['-rf', tmp]);
+    if (fs.existsSync(NOVNC_DIR + '/core/rfb.js')) {
+      app.use('/novnc', express.static(NOVNC_DIR));
+      console.log('noVNC downloaded and served from ' + NOVNC_DIR);
+    } else {
+      console.log('noVNC download failed — Desktop tab unavailable');
+    }
+  } catch (e) {
+    console.log('noVNC download error: ' + e.message);
+  }
+})();
 
 // ─── VNC / Install State ──────────────────────────────────────────
 
