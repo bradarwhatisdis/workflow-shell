@@ -39,5 +39,16 @@ npm install
 cd ..
 
 echo ""
+echo "Ensuring cloudflared is available..."
+if ! command -v cloudflared &>/dev/null; then
+  curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
+  chmod +x /tmp/cloudflared
+  sudo mv /tmp/cloudflared /usr/local/bin/cloudflared
+  echo "cloudflared installed."
+else
+  echo "cloudflared already installed."
+fi
+
+echo ""
 echo "--- Setup is complete! ---"
 echo "Run: ./scripts/run.sh"

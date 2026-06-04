@@ -37,17 +37,16 @@ for i in {1..10}; do
   sleep 1
 done
 
-# Start tunnel via pinggy.io (background to avoid full-screen UI)
+# Start tunnel via cloudflared
 echo ""
-echo "Starting tunnel via pinggy.io..."
-ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
-    -p 443 -R 80:localhost:8080 a.pinggy.io > /tmp/tunnel.log 2>&1 &
+echo "Starting tunnel via Cloudflare..."
+cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
 TUNNEL_PID=$!
-sleep 6
+sleep 5
 
 echo ""
 echo "=========================================="
-TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.run\.pinggy-free\.link' /tmp/tunnel.log 2>/dev/null | head -1)
+TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
 echo "Tunnel URL: ${TUNNEL_URL:-http://localhost:8080}"
 echo "=========================================="
 echo ""
