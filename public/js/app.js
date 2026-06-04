@@ -1519,8 +1519,8 @@ function activateDesktop() {
       var token = getSessionToken();
       var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token);
       var retries = 0;
-      var maxRetries = 12;
-      var retryDelay = 1500;
+      var maxRetries = 60;
+      var retryDelay = 2000;
 
       function probeVnc() {
         appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
