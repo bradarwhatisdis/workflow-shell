@@ -476,6 +476,12 @@ html, body {
   position: relative;
   border-radius: var(--radius-sm);
   min-height: 36px;
+  animation: fadeSlideIn 0.3s var(--ease) both;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .file-item:hover { background: var(--bg-hover); }
 .file-item.selected { background: var(--accent-subtle); }
