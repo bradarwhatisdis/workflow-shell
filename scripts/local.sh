@@ -50,17 +50,24 @@ echo ""
 echo "  Local:       http://localhost:8080"
 echo ""
 
-# Start Cloudflare tunnel in background
+# Start Cloudflare tunnel in background (non-fatal if unavailable)
 echo "Starting tunnel via Cloudflare..."
-cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
-TUNNEL_PID=$!
-sleep 6
+TUNNEL_URL=""
+TUNNEL_PID=""
+if command -v cloudflared &>/dev/null; then
+  cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
+  TUNNEL_PID=$!
+  sleep 6
+  TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || true)
+else
+  echo "cloudflared not found — install with: sudo apt install cloudflared"
+fi
 
 echo ""
 echo "=========================================="
-grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || echo "Tunnel URL not found. Check /tmp/tunnel.log"
+echo "Tunnel URL: ${TUNNEL_URL:-Not available}"
 echo ""
-echo "  Open the URL above, log in, then refresh to reproduce the bug."
+echo "  Local:       http://localhost:8080"
 echo "  Press Ctrl+C to stop."
 echo "=========================================="
 echo ""
@@ -68,5 +75,9 @@ echo ""
 # Show live server logs
 tail -f /tmp/workflow-shell.log &
 TAIL_PID=$!
-trap "kill $TAIL_PID $TUNNEL_PID 2>/dev/null; echo ''; echo '=== FULL SERVER LOG ==='; cat /tmp/workflow-shell.log 2>/dev/null" EXIT
-wait "$TUNNEL_PID" || true
+trap "kill $TAIL_PID $TUNNEL_PID 2>/dev/null || true; echo ''; echo '=== FULL SERVER LOG ==='; cat /tmp/workflow-shell.log 2>/dev/null || true" EXIT
+if [ -n "$TUNNEL_PID" ]; then
+  wait "$TUNNEL_PID" 2>/dev/null || true
+else
+  wait "$SERVER_PID" 2>/dev/null || true
+fi
