@@ -1510,19 +1510,35 @@ function activateDesktop() {
       var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       var token = getSessionToken();
       var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token);
-      var testWs = new WebSocket(testUrl);
-      testWs.onopen = function() {
-        testWs.close();
-        setStatus('connected', 'Desktop ready');
-        installView.style.display = 'none';
-        viewerEl.style.display = 'flex';
-        document.getElementById('desktop-iframe').src = '/desktop.html';
-      };
-      testWs.onerror = function() {
-        appendLog('\n[Desktop is not available. You can retry by switching tabs.]\n');
-        setStatus('error', 'Desktop unavailable');
-        desktopActivated = false;
-      };
+      var retries = 0;
+      var maxRetries = 12;
+      var retryDelay = 1500;
+
+      function probeVnc() {
+        appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
+        var testWs = new WebSocket(testUrl);
+        testWs.onopen = function() {
+          testWs.close();
+          setStatus('connected', 'Desktop ready');
+          appendLog('[Desktop connection established]\n');
+          installView.style.display = 'none';
+          viewerEl.style.display = 'flex';
+          document.getElementById('desktop-iframe').src = '/desktop.html';
+        };
+        testWs.onerror = function() {
+          retries++;
+          if (retries < maxRetries) {
+            appendLog('[VNC not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
+            setTimeout(probeVnc, retryDelay);
+          } else {
+            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts. You can retry by switching tabs.]\n');
+            setStatus('error', 'Desktop unavailable');
+            desktopActivated = false;
+          }
+        };
+      }
+
+      probeVnc();
     }, 1000);
   };
 
