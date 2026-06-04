@@ -1,12 +1,13 @@
 const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
+const net = require('net');
 const WebSocket = require('ws');
 const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { execFileSync, execSync, spawnSync } = require('child_process');
+const { execFileSync, execSync, spawnSync, spawn } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const QUICK_ACTIONS_PATH = path.join(REPO_ROOT, 'quick_actions.json');
@@ -76,6 +77,27 @@ app.use(authMiddleware);
 // Serve xterm.js and addon from node_modules
 app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
 app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
+
+// Serve noVNC client files if available
+const NOVNC_DIR = '/opt/novnc';
+if (fs.existsSync(NOVNC_DIR)) {
+  app.use('/novnc', express.static(NOVNC_DIR));
+  console.log('noVNC served from ' + NOVNC_DIR);
+} else {
+  console.log('noVNC not found at ' + NOVNC_DIR + ' — Desktop tab will be unavailable');
+}
+
+// ─── VNC / Install State ──────────────────────────────────────────
+
+const INSTALL_SCRIPT = path.join(__dirname, '..', 'scripts', 'install-xfce.sh');
+const VNC_RFB_PORT = 5901;
+const installState = {
+  running: false,
+  done: false,
+  logs: [],
+  listeners: [],
+  vncProcesses: [],
+};
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
@@ -503,46 +525,99 @@ app.post('/api/extract', (req, res) => {
 
 // ─── Kill API ──────────────────────────────────────────────────────────────
 
+function startVNCServer() {
+  try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
+
+  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'ignore' });
+  installState.vncProcesses.push(xvfb);
+
+  setTimeout(() => {
+    const session = spawn('xfce4-session', [], {
+      stdio: 'ignore',
+      env: { ...process.env, DISPLAY: ':1' },
+    });
+    installState.vncProcesses.push(session);
+
+    setTimeout(() => {
+      const vnc = spawn('x11vnc', [
+        '-display', ':1', '-forever', '-shared',
+        '-rfbport', String(VNC_RFB_PORT), '-nopw',
+      ], { stdio: 'ignore' });
+      installState.vncProcesses.push(vnc);
+      console.log('VNC server started on port ' + VNC_RFB_PORT);
+    }, 3000);
+  }, 1000);
+}
+
+function stopVNCServer() {
+  installState.vncProcesses.forEach(p => { try { p.kill(); } catch (e) {} });
+  installState.vncProcesses = [];
+  try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
+}
+
 app.post('/api/kill', (req, res) => {
   res.json({ success: true, message: 'Shutting down workflow shell...' });
   console.log('Kill requested - shutting down...');
   setTimeout(() => {
-    try { spawnSync('pkill', ['-9', '-f', '^ssh.*a\\.pinggy\\.io'], { stdio: 'ignore' }); } catch (e) {}
-    try { spawnSync('pkill', ['-9', '-f', 'node backend/server\\.js'], { stdio: 'ignore' }); } catch (e) {}
+    stopVNCServer();
+    try { spawnSync('pkill', ['-9', '-f', 'cloudflared'], { stdio: 'ignore' }); } catch (e) {}
+    try { spawnSync('pkill', ['-9', '-f', 'node backend/server'], { stdio: 'ignore' }); } catch (e) {}
     process.exit(1);
   }, 1000);
 });
 
-// ─── Terminal WebSocket ────────────────────────────────────────────────────
+// ─── WebSocket Router ────────────────────────────────────────────────────
+
+function wsAuth(ws, url) {
+  if (!AUTH_ENABLED) return true;
+  const token = url.searchParams.get('token');
+  if (token) {
+    const entry = sessions.get(token);
+    if (entry && Date.now() - entry.time < SESSION_TTL) {
+      entry.time = Date.now();
+      return true;
+    }
+    if (entry) sessions.delete(token);
+  }
+  ws.close(4001, 'Authentication required');
+  return false;
+}
+
+function wsOriginCheck(ws, req) {
+  const origin = req.headers.origin;
+  if (!origin || !AUTH_ENABLED) return true;
+  try {
+    const originHost = new URL(origin).host;
+    const serverHost = req.headers.host;
+    if (originHost === serverHost || originHost.endsWith('.trycloudflare.com')) return true;
+  } catch (e) {}
+  ws.close(4001, 'Origin not allowed');
+  return false;
+}
 
 const WS_HEARTBEAT_INTERVAL = 30000;
 
 wss.on('connection', (ws, req) => {
-  const origin = req.headers.origin;
-  if (origin && AUTH_ENABLED) {
-    try {
-      const originHost = new URL(origin).host;
-      const serverHost = req.headers.host;
-      if (originHost !== serverHost && !originHost.endsWith('.pinggy-free.link')) {
-        ws.close(4001, 'Origin not allowed');
-        return;
-      }
-    } catch (e) {
-      ws.close(4001, 'Invalid origin');
-      return;
-    }
-  }
+  const url = new URL(req.url, 'http://localhost');
+  const pathname = url.pathname.replace(/\/+$/, '') || '/';
 
-  const params = new URL(req.url, 'http://localhost').searchParams;
-  if (AUTH_ENABLED) {
-    const token = params.get('token');
-    if (!token || !sessions.has(token) || Date.now() - sessions.get(token).time >= SESSION_TTL) {
-      ws.close(4001, 'Authentication required');
-      return;
-    }
-    sessions.get(token).time = Date.now();
-  }
+  if (!wsOriginCheck(ws, req)) return;
+  if (!wsAuth(ws, url)) return;
 
+  if (pathname === '/install') return handleInstallWS(ws, url);
+  if (pathname === '/vnc') return handleVncWS(ws, url);
+
+  handleTerminalWS(ws, url);
+});
+
+// ─── Terminal WebSocket ──────────────────────────────────────────
+
+function handleTerminalWS(ws, url) {
+  const params = url.searchParams;
   const ptyCols = parseInt(params.get('cols'), 10) || 80;
   const ptyRows = parseInt(params.get('rows'), 10) || 30;
   const ptyProcess = pty.spawn('/bin/bash', [], {
@@ -582,7 +657,113 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     try { ptyProcess.kill(); } catch (e) {}
   });
-});
+}
+
+// ─── Install WebSocket ───────────────────────────────────────────
+
+function handleInstallWS(ws, url) {
+  const send = (text) => {
+    try { ws.send(JSON.stringify({ type: 'log', data: text })); } catch (e) {}
+  };
+
+  const broadcast = (text) => {
+    installState.logs.push(text);
+    installState.listeners.forEach(fn => fn(text));
+  };
+
+  const listener = (text) => send(text);
+  installState.listeners.push(listener);
+
+  for (const line of installState.logs) send(line);
+
+  if (installState.done) {
+    send('[DONE]\n');
+    ws.close();
+    installState.listeners = installState.listeners.filter(l => l !== listener);
+    return;
+  }
+
+  if (installState.running) {
+    send('[STATUS] Installation already in progress...\n');
+    ws.on('close', () => {
+      installState.listeners = installState.listeners.filter(l => l !== listener);
+    });
+    return;
+  }
+
+  installState.running = true;
+  send('[STATUS] Starting installation...\n');
+
+  const proc = spawn('bash', [INSTALL_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  const onData = (data) => {
+    const text = data.toString();
+    send(text);
+    broadcast(text);
+  };
+
+  proc.stdout.on('data', onData);
+  proc.stderr.on('data', onData);
+
+  proc.on('exit', (code) => {
+    installState.running = false;
+    installState.done = true;
+
+    if (code === 0) {
+      const msg = '\n[STATUS] Installation complete! Starting desktop...\n';
+      send(msg);
+      broadcast(msg);
+      startVNCServer();
+      send('[VNC_READY]\n');
+    } else {
+      const msg = '\n[STATUS] Installation failed (exit code ' + code + ')\n';
+      send(msg);
+      broadcast(msg);
+    }
+
+    ws.close();
+    installState.listeners = installState.listeners.filter(l => l !== listener);
+  });
+
+  ws.on('close', () => {
+    installState.listeners = installState.listeners.filter(l => l !== listener);
+  });
+}
+
+// ─── VNC WebSocket Proxy ─────────────────────────────────────────
+
+function handleVncWS(ws, url) {
+  const tcp = net.connect(VNC_RFB_PORT, 'localhost', () => {
+    ws.on('message', (data) => {
+      try { tcp.write(Buffer.from(data)); } catch (e) {}
+    });
+
+    tcp.on('data', (data) => {
+      try { ws.send(data); } catch (e) {}
+    });
+
+    tcp.on('end', () => {
+      try { ws.close(); } catch (e) {}
+    });
+
+    tcp.on('error', () => {
+      try { ws.close(); } catch (e) {}
+    });
+
+    ws.on('close', () => {
+      try { tcp.end(); } catch (e) {}
+    });
+
+    ws.on('error', () => {
+      try { tcp.end(); } catch (e) {}
+    });
+  });
+
+  tcp.on('error', () => {
+    try { ws.send(JSON.stringify({ type: 'error', data: 'Cannot connect to VNC server' })); } catch (e) {}
+    try { ws.close(); } catch (e) {}
+  });
+}
 
 const heartbeatTimer = setInterval(() => {
   wss.clients.forEach((ws) => {
