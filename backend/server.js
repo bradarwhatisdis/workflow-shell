@@ -591,7 +591,7 @@ app.post('/api/extract', (req, res) => {
 function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
 
   const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'pipe' });
@@ -610,25 +610,34 @@ function startVNCServer() {
     console.error('[dbus] failed to start: ' + e.message);
   }
 
-  setTimeout(function() {
-    const session = spawn('xfce4-session', [], {
-      stdio: 'pipe',
-      env: { ...process.env, DISPLAY: ':1', ...dbusEnv },
-    });
-    session.stderr.on('data', (d) => console.error('[xfce]', d.toString().trim()));
-    installState.vncProcesses.push(session);
+  var desktopEnv = { ...process.env, DISPLAY: ':1', ...dbusEnv };
 
+  function spawnDesktop(name, args, delay) {
     setTimeout(function() {
-      const vnc = spawn('x11vnc', [
-        '-display', ':1', '-forever', '-shared',
-        '-rfbport', String(VNC_RFB_PORT), '-nopw',
-      ], { stdio: 'pipe' });
-      vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
-      vnc.on('exit', (code) => console.log('[x11vnc] exited with code ' + code));
-      installState.vncProcesses.push(vnc);
-      console.log('VNC server started on port ' + VNC_RFB_PORT);
-    }, 3000);
-  }, 1000);
+      var proc = spawn(name, args, { stdio: 'pipe', env: desktopEnv });
+      proc.stderr.on('data', function(d) { console.error('[' + name + ']', d.toString().trim()); });
+      proc.on('exit', function(code) { console.log('[' + name + '] exited with code ' + code); });
+      installState.vncProcesses.push(proc);
+      console.log('[' + name + '] started');
+    }, delay);
+  }
+
+  // Start desktop components in sequence: wm → panel → desktop
+  spawnDesktop('xfwm4', ['--display', ':1'], 2000);
+  spawnDesktop('xfce4-panel', [], 3000);
+  spawnDesktop('xfdesktop', [], 4000);
+
+  // Start x11vnc after all desktop components are up
+  setTimeout(function() {
+    const vnc = spawn('x11vnc', [
+      '-display', ':1', '-forever', '-shared',
+      '-rfbport', String(VNC_RFB_PORT), '-nopw',
+    ], { stdio: 'pipe' });
+    vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
+    vnc.on('exit', (code) => console.log('[x11vnc] exited with code ' + code));
+    installState.vncProcesses.push(vnc);
+    console.log('VNC server started on port ' + VNC_RFB_PORT);
+  }, 6000);
 }
 
 function stopVNCServer() {
@@ -636,7 +645,7 @@ function stopVNCServer() {
   installState.vncProcesses = [];
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
 }
 
 app.post('/api/kill', (req, res) => {
