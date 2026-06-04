@@ -313,6 +313,13 @@ html, body {
   gap: 0;
 }
 
+main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
