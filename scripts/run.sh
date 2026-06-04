@@ -30,7 +30,6 @@ fi
 echo "[2/3] Setting up workspace..."
 sudo mkdir -p "$WORKSPACE_DIR"
 sudo chown -R "$USERNAME:$USERNAME" "$WORKSPACE_DIR"
-sudo chown -R "$USERNAME:$USERNAME" "$WORKDIR"
 echo "  Workspace: $WORKSPACE_DIR"
 echo ""
 
@@ -39,9 +38,14 @@ pkill -f "node backend/server.js" 2>/dev/null || true
 sleep 1
 
 # Start the backend server as workflow-shell user
+# The repo is cloned to a path under /home/runner/ which workflow-shell can't
+# traverse, so we run from a copy inside the workspace instead.
 echo "[3/3] Starting server as '$USERNAME'..."
+sudo mkdir -p "$WORKSPACE_DIR/backend"
+sudo cp -r "$WORKDIR/backend/." "$WORKSPACE_DIR/backend/"
+sudo chown -R "$USERNAME:$USERNAME" "$WORKSPACE_DIR/backend"
 sudo -u "$USERNAME" env WORKSPACE_DIR="$WORKSPACE_DIR" HOME="$USER_HOME" \
-  nohup node "$WORKDIR/backend/server.js" > /tmp/workflow-shell.log 2>&1 &
+  nohup node "$WORKSPACE_DIR/backend/server.js" > /tmp/workflow-shell.log 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
