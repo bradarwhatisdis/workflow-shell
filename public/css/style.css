@@ -1492,6 +1492,13 @@ html, body {
   pointer-events: auto;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  transition: all 0.2s var(--ease);
+}
+.toast:hover {
+  transform: translateX(-4px) scale(1.03);
+  box-shadow: var(--shadow-xl);
+  border-color: var(--accent);
+  cursor: pointer;
 }
 .toast.removing { animation: toastSlideOut 0.2s var(--ease-in) forwards; }
 
