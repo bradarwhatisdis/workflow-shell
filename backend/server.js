@@ -860,7 +860,7 @@ function handleVncWS(ws, url) {
     });
 
     tcp.on('error', () => {
-      if (attempt < 8) {
+      if (attempt < 60) {
         const delay = Math.min(500 * Math.pow(1.5, attempt), 4000);
         setTimeout(() => connectToVnc(attempt + 1), delay);
       } else {
