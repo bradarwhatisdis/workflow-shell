@@ -593,21 +593,25 @@ function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'xfce4-session']); } catch (e) {}
 
-  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'ignore' });
+  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'pipe' });
+  xvfb.stderr.on('data', (d) => console.error('[xvfb]', d.toString().trim()));
   installState.vncProcesses.push(xvfb);
 
   setTimeout(() => {
     const session = spawn('xfce4-session', [], {
-      stdio: 'ignore',
+      stdio: 'pipe',
       env: { ...process.env, DISPLAY: ':1' },
     });
+    session.stderr.on('data', (d) => console.error('[xfce]', d.toString().trim()));
     installState.vncProcesses.push(session);
 
     setTimeout(() => {
       const vnc = spawn('x11vnc', [
         '-display', ':1', '-forever', '-shared',
         '-rfbport', String(VNC_RFB_PORT), '-nopw',
-      ], { stdio: 'ignore' });
+      ], { stdio: 'pipe' });
+      vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
+      vnc.on('exit', (code) => console.log('[x11vnc] exited with code ' + code));
       installState.vncProcesses.push(vnc);
       console.log('VNC server started on port ' + VNC_RFB_PORT);
     }, 3000);
