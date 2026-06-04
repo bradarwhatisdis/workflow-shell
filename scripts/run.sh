@@ -74,14 +74,21 @@ done
 # Start tunnel via cloudflared
 echo ""
 echo "Starting tunnel via Cloudflare..."
-cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
-TUNNEL_PID=$!
-sleep 5
+for i in 1 2 3; do
+  [ $i -gt 1 ] && echo "Retrying tunnel ($i/3)..."
+  cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
+  TUNNEL_PID=$!
+  sleep 8
 
-TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || true)
+  TUNNEL_URL=$(grep -o 'https\?://[^[:space:]]*\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1 || true)
+  if [ -n "$TUNNEL_URL" ]; then break; fi
+  kill "$TUNNEL_PID" 2>/dev/null || true
+  sleep 2
+done
+
 if [ -z "$TUNNEL_URL" ]; then
   echo ""
-  echo "ERROR: Tunnel URL not found. cloudflared log:"
+  echo "ERROR: Tunnel URL not found after 3 attempts. cloudflared log:"
   cat /tmp/tunnel.log 2>/dev/null
   exit 1
 fi
