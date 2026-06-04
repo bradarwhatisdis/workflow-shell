@@ -1261,6 +1261,10 @@ html, body {
   border-top: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
+.modal-footer .btn {
+  min-width: 80px;
+  justify-content: center;
+}
 
 /* ── Editor ── */
 
