@@ -908,11 +908,14 @@ window.addEventListener('beforeunload', function(e) {
 
 function closeEditor() {
   if (!state.editorInstance) { dom.editorModal.classList.remove('active'); return; }
-  if (state.editorInstance.getValue() !== state.editingOriginalContent) {
+  if (typeof state.editorInstance.getValue === 'function' &&
+      state.editorInstance.getValue() !== state.editingOriginalContent) {
     if (!confirm('You have unsaved changes. Close without saving?')) return;
   }
   dom.editorModal.classList.remove('active');
-  state.editorInstance.toTextArea();
+  if (typeof state.editorInstance.toTextArea === 'function') {
+    state.editorInstance.toTextArea();
+  }
   state.editorInstance = null;
 }
 
