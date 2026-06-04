@@ -1523,25 +1523,41 @@ function activateDesktop() {
       function probeVnc() {
         appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
         var testWs = new WebSocket(testUrl);
-        testWs.onopen = function() {
+        var done = false;
+
+        function fail() {
+          if (done) return;
+          done = true;
+          testWs.close();
+          retries++;
+          if (retries < maxRetries) {
+            appendLog('[VNC not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
+            setTimeout(probeVnc, retryDelay);
+          } else {
+            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts. Switch tabs to retry.]\n');
+            setStatus('error', 'Desktop unavailable');
+            desktopActivated = false;
+          }
+        }
+
+        function succeed() {
+          if (done) return;
+          done = true;
           testWs.close();
           setStatus('connected', 'Desktop ready');
           appendLog('[Desktop connection established]\n');
           installView.style.display = 'none';
           viewerEl.style.display = 'flex';
           document.getElementById('desktop-iframe').src = '/desktop.html';
-        };
-        testWs.onerror = function() {
-          retries++;
-          if (retries < maxRetries) {
-            appendLog('[VNC not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
-            setTimeout(probeVnc, retryDelay);
-          } else {
-            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts. You can retry by switching tabs.]\n');
-            setStatus('error', 'Desktop unavailable');
-            desktopActivated = false;
-          }
-        };
+        }
+
+        // WebSocket upgrade alone doesn't mean VNC is ready.
+        // We wait for actual RFB protocol data from x11vnc or a timeout/closing.
+        var probeTimer = setTimeout(fail, 2000);
+        testWs.onopen = function() { /* waiting for data */ };
+        testWs.onmessage = function() { clearTimeout(probeTimer); succeed(); };
+        testWs.onerror = function() { clearTimeout(probeTimer); fail(); };
+        testWs.onclose = function() { clearTimeout(probeTimer); fail(); };
       }
 
       probeVnc();
