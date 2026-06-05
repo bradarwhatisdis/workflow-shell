@@ -1841,7 +1841,7 @@ function initUpdateChecker() {
   }
 
   poll();
-  setInterval(poll, 30000);
+  setInterval(poll, 10000);
 }
 
 initUpdateChecker();

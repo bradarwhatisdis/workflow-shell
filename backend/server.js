@@ -817,7 +817,7 @@ function stopVNCServer() {
 
 // ─── Update Check ──────────────────────────────────────────────────────────
 
-const UPDATE_POLL_INTERVAL = 60000;
+const UPDATE_POLL_INTERVAL = 10000;
 const REPO_DIR = path.resolve(__dirname, '..');
 let updateStatus = {
   currentCommit: '',
