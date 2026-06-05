@@ -10,6 +10,7 @@ var state = {
   contextTarget: null,
   renameTarget: null,
   isListView: true,
+  focusedIndex: -1,
 };
 
 var dom = {};
@@ -375,18 +376,45 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'f') { e.preventDefault(); toggleSearch(); }
     if (e.key === 'n') { e.preventDefault(); showNewFile(); }
     if (e.key === 'r') { e.preventDefault(); loadDir(state.currentPath); toast('Refreshed', 'fa-rotate', 'var(--accent)'); }
+    if (e.key === 'f' && e.shiftKey) { e.preventDefault(); globalSearchBar.classList.toggle('active'); if (globalSearchBar.classList.contains('active')) globalSearchInput.focus(); }
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      state.focusedIndex = Math.min(state.focusedIndex + 1, items.length - 1);
+    } else {
+      state.focusedIndex = Math.max(state.focusedIndex - 1, 0);
+    }
+    dom.fileList.querySelectorAll('.file-item.selected').forEach(function(el) { el.classList.remove('selected'); });
+    items[state.focusedIndex].classList.add('selected');
+    items[state.focusedIndex].scrollIntoView({ block: 'nearest' });
+  }
+  if (e.key === 'Enter' && state.focusedIndex >= 0 && !e.target.closest('input,textarea')) {
+    e.preventDefault();
+    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
+    var li = items[state.focusedIndex];
+    if (li) {
+      if (li.dataset.isDir === 'true') {
+        loadDir(li.dataset.path);
+      } else {
+        openEditor(li.dataset.name);
+      }
+    }
   }
   if (e.key === 'F2') {
     e.preventDefault();
-    var selected = dom.fileList.querySelector('.file-item.selected');
-    if (selected) startRename(selected);
+    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
+    var li = items[state.focusedIndex];
+    if (li) startRename(li);
   }
   if (e.key === 'Delete') {
-    var selected = dom.fileList.querySelector('.file-item.selected');
-    if (selected && !e.target.closest('input')) {
-      var name = selected.dataset.name;
-      var isDir = selected.dataset.isDir === 'true';
-      showDeleteConfirm(name, isDir);
+    if (state.focusedIndex < 0) return;
+    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
+    var li = items[state.focusedIndex];
+    if (li && !e.target.closest('input')) {
+      showDeleteConfirm(li.dataset.name, li.dataset.isDir === 'true');
     }
   }
   if (e.key === '?' && !e.target.closest('input')) {
@@ -403,7 +431,13 @@ dom.fileList.addEventListener('mouseover', function(e) {
   dom.fileList.querySelectorAll('.file-item.selected').forEach(function(el) {
     if (el !== li) el.classList.remove('selected');
   });
-  if (!li.classList.contains('parent-item')) li.classList.add('selected');
+  if (!li.classList.contains('parent-item')) {
+    li.classList.add('selected');
+    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] === li) { state.focusedIndex = i; break; }
+    }
+  }
 });
 
 dom.fileList.addEventListener('mouseleave', function() {
@@ -434,9 +468,15 @@ function hideSearch() {
 }
 
 dom.searchToggle.addEventListener('click', function() {
-  toggleSearch();
+  globalSearchBar.classList.toggle('active');
+  if (globalSearchBar.classList.contains('active')) {
+    globalSearchInput.focus();
+  } else {
+    globalSearchInput.value = '';
+    globalSearchBar.classList.remove('active');
+  }
   if (dom.searchBox.style.display !== 'none') {
-    dom.fileToolbar.style.display = 'block';
+    hideSearch();
   }
 });
 
@@ -515,6 +555,13 @@ function showContextMenu(x, y, li) {
     }
     if (action === 'download') {
       item.style.display = state.contextTarget.isDir ? 'none' : 'flex';
+    }
+    if (action === 'extract') {
+      var archiveExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.rar', '.7z'];
+      var isArchive = !state.contextTarget.isDir && archiveExts.some(function(ext) {
+        return state.contextTarget.name.toLowerCase().endsWith(ext);
+      });
+      item.style.display = isArchive ? 'flex' : 'none';
     }
   });
 }
@@ -1045,7 +1092,11 @@ function renderQuickActions() {
   });
 }
 
+var previousTabBeforeRunner = 'terminal';
+
 function runQuickAction(action) {
+  var activeTab = document.querySelector('.pane-tab.active');
+  if (activeTab) previousTabBeforeRunner = activeTab.dataset.tab;
   var overlay = document.getElementById('qa-runner-overlay');
   var terminal = document.getElementById('terminal-container');
   terminal.style.display = 'none';
@@ -1079,7 +1130,7 @@ function runQuickAction(action) {
 function closeRunner() {
   document.getElementById('qa-runner-overlay').style.display = 'none';
   document.getElementById('qa-runner-output').innerHTML = '';
-  switchPaneTab('terminal');
+  switchPaneTab(previousTabBeforeRunner);
 }
 
 document.getElementById('qa-runner-close').addEventListener('click', closeRunner);
@@ -1179,12 +1230,10 @@ timerInfoBtn.addEventListener('click', function(e) {
     timerTooltip = document.createElement('div');
     timerTooltip.className = 'timer-tooltip';
     timerTooltip.innerHTML =
-      '<h4><i class="fas fa-clock"></i> Workflow Timeout</h4>' +
-      '<p>The workflow has a timeout limit. When this time is reached, the runner is automatically terminated.</p>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Current workflow</span><span class="timer-tip-value">360 min</span></div>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Run step limit</span><span class="timer-tip-value">360 min</span></div>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">GitHub max (free)</span><span class="timer-tip-value">6 hours</span></div>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Self-hosted max</span><span class="timer-tip-value">35 days</span></div>';
+      '<h4><i class="fas fa-clock"></i> Session Timeout</h4>' +
+      '<p>This timer tracks how long this workflow shell has been running. The session token expires after 5 minutes of inactivity.</p>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Session TTL</span><span class="timer-tip-value">5 min (idle)</span></div>' +
+      '<div class="timer-tip-row"><span class="timer-tip-label">Session renews</span><span class="timer-tip-value">On each request</span></div>';
     document.body.appendChild(timerTooltip);
   }
   var rect = timerInfoBtn.getBoundingClientRect();
@@ -1399,8 +1448,12 @@ function loadGitStatus() {
         });
         html += '</div>';
       }
-      if (!d.changes.length && (!d.log || !d.log.length)) {
-        html += '<div class="search-empty"><i class="fas fa-code-branch"></i><p>No git data available</p></div>';
+      if (d.branch === '(not a git repo)' || (!d.changes.length && (!d.log || !d.log.length))) {
+        html = '<div class="git-section"><div class="git-section-title"><i class="fas fa-code-branch"></i> Branch</div>';
+        html += '<div class="git-branch"><i class="fas fa-code-branch"></i> ' + escapeHtml(d.branch) + '</div></div>';
+        if (!d.changes.length && (!d.log || !d.log.length)) {
+          html += '<div class="search-empty"><i class="fas fa-code-branch"></i><p>No changes or commits yet</p></div>';
+        }
       }
       body.innerHTML = html;
     })
@@ -1459,13 +1512,24 @@ function renderSearchResults(results, query) {
   body.querySelectorAll('.search-result-item').forEach(function(el) {
     el.addEventListener('click', function() {
       var file = this.dataset.file;
-      switchPaneTab('terminal');
-      toast('Found in: ' + file, 'fa-search', 'var(--accent)');
+      var line = parseInt(this.dataset.line, 10);
+      var filePath = file;
+      api('/api/file?path=' + encodeURIComponent(filePath)).then(function(data) {
+        state.currentPath = '/' + file.split('/').slice(0, -1).join('/');
+        state.items = [];
+        openEditor(data.name);
+      }).catch(function(err) {
+        toast('Cannot open: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+      });
     });
   });
 }
 
 function switchPaneTab(tab) {
+  if (state.editorInstance && typeof state.editorInstance.getValue === 'function' &&
+      state.editorInstance.getValue() !== state.editingOriginalContent) {
+    if (!confirm('You have unsaved changes in the editor. Switch tabs?')) return;
+  }
   document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
   var target = document.querySelector('.pane-tab[data-tab="' + tab + '"]');
   if (target) target.classList.add('active');
@@ -1643,7 +1707,7 @@ function initUpdateChecker() {
     btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
     api('/api/update', { method: 'POST' })
       .then(function(r) { return r.json(); })
-      .then(function(d) { showToast(d.message || 'Update started'); })
+      .then(function(d) { toast(d.message || 'Update started'); })
       .catch(function() { btnEl.disabled = false; btnEl.innerHTML = '<i class="fas fa-rotate"></i> Update'; });
   });
 
@@ -1809,18 +1873,6 @@ globalSearchInput.addEventListener('input', function() {
   }
 });
 
-// Override search toggle to show global search
-var origSearchToggle = document.getElementById('search-toggle');
-origSearchToggle.addEventListener('click', function() {
-  globalSearchBar.classList.toggle('active');
-  if (globalSearchBar.classList.contains('active')) {
-    globalSearchInput.focus();
-  } else {
-    globalSearchInput.value = '';
-    globalSearchBar.classList.remove('active');
-  }
-});
-
 // ─── Context Menu: Archive / Extract ────────────────────────────────────────
 
 document.querySelectorAll('.context-menu-item[data-action="archive"]').forEach(function(el) {
@@ -1896,13 +1948,19 @@ document.addEventListener('drop', function(e) {
   var to = toDir + '/' + fileName;
   if (from === to) return;
   toast('Moving...', 'fa-arrows', 'var(--accent)');
+  dom.fileList.style.opacity = '0.5';
+  dom.fileList.style.pointerEvents = 'none';
   api('/api/file/move', {
     method: 'POST',
     body: JSON.stringify({ from: from, to: to }),
   }).then(function() {
+    dom.fileList.style.opacity = '';
+    dom.fileList.style.pointerEvents = '';
     toast('Moved: ' + fileName, 'fa-arrows', 'var(--success)');
     loadDir(state.currentPath);
   }).catch(function(err) {
+    dom.fileList.style.opacity = '';
+    dom.fileList.style.pointerEvents = '';
     toast('Move failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
   });
 });
