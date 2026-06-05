@@ -23,6 +23,58 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 8080;
 const WORKSPACE = process.env.WORKSPACE_DIR || path.join(process.env.HOME || '/home/runner', 'work');
 
+// ─── Structured Logger ─────────────────────────────────────────────────
+
+const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
+const LOG_LEVEL = (process.env.LOG_LEVEL || 'info').toLowerCase();
+
+function log(level, ...args) {
+  if (LOG_LEVELS[level] < LOG_LEVELS[LOG_LEVEL]) return;
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const prefix = '[' + ts + '] [' + level.toUpperCase() + ']';
+  if (level === 'error') {
+    console.error(prefix, ...args);
+  } else if (level === 'warn') {
+    console.warn(prefix, ...args);
+  } else {
+    console.log(prefix, ...args);
+  }
+}
+
+// ─── Tunnel URL (set by run.sh after discovering cloudflare URL) ─────────
+
+let tunnelUrl = '';
+
+app.post('/api/tunnel-url', (req, res) => {
+  const { url } = req.body || {};
+  if (url) {
+    tunnelUrl = url;
+    log('info', 'Tunnel URL set: ' + tunnelUrl);
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ error: 'Missing url' });
+  }
+});
+
+app.get('/api/tunnel-url', (req, res) => {
+  res.json({ url: tunnelUrl });
+});
+
+// ─── Graceful Shutdown ────────────────────────────────────────────────
+
+function gracefulShutdown(reason) {
+  log('info', 'Shutting down: ' + reason);
+  stopVNCServer();
+  if (fileWatcher) { try { fileWatcher.close(); } catch (e) {} }
+  clearInterval(heartbeatTimer);
+  wss.clients.forEach(ws => { try { ws.terminate(); } catch (e) {} });
+  server.close(() => {
+    log('info', 'Server closed');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+
 // ─── Authentication (session token based) ────────────────────────────────
 
 const AUTH_USER = process.env.USERNAME || '';
@@ -96,10 +148,10 @@ const NOVNC_DIR = '/opt/novnc';
 (function ensureNovnc() {
   if (fs.existsSync(NOVNC_DIR + '/core/rfb.js')) {
     app.use('/novnc', express.static(NOVNC_DIR));
-    console.log('noVNC served from ' + NOVNC_DIR);
+    log('info', 'noVNC served from ' + NOVNC_DIR);
     return;
   }
-  console.log('noVNC not found at ' + NOVNC_DIR + ' — attempting to download...');
+  log('info', 'noVNC not found at ' + NOVNC_DIR + ' — attempting to download...');
   try {
     const tmp = '/tmp/novnc-repo';
     spawnSync('rm', ['-rf', tmp]);
@@ -109,12 +161,12 @@ const NOVNC_DIR = '/opt/novnc';
     spawnSync('rm', ['-rf', tmp]);
     if (fs.existsSync(NOVNC_DIR + '/core/rfb.js')) {
       app.use('/novnc', express.static(NOVNC_DIR));
-      console.log('noVNC downloaded and served from ' + NOVNC_DIR);
+      log('info', 'noVNC downloaded and served from ' + NOVNC_DIR);
     } else {
-      console.log('noVNC download failed — Desktop tab unavailable');
+      log('info', 'noVNC download failed — Desktop tab unavailable');
     }
   } catch (e) {
-    console.log('noVNC download error: ' + e.message);
+    log('info', 'noVNC download error: ' + e.message);
   }
 })();
 
@@ -139,7 +191,7 @@ function startFileWatcher() {
   try { if (fileWatcher) fileWatcher.close(); } catch (e) {}
 
   if (!fs.existsSync(WORKSPACE)) {
-    console.warn('Workspace not found, file watcher disabled');
+    log('warn', 'Workspace not found, file watcher disabled');
     return;
   }
 
@@ -167,9 +219,9 @@ function startFileWatcher() {
     fileWatcher.on('addDir', notify);
     fileWatcher.on('unlinkDir', notify);
 
-    console.log('File watcher started on ' + WORKSPACE);
+    log('info', 'File watcher started on ' + WORKSPACE);
   } catch (e) {
-    console.warn('File watcher error:', e.message);
+    log('warn', 'File watcher error:', e.message);
   }
 }
 
@@ -250,7 +302,7 @@ function sanitizeFilename(name) {
 }
 
 function safeError(err, res) {
-  console.error('[ERROR]', err);
+  log('error', '[ERROR]', err);
   res.status(500).json({ error: 'Internal server error' });
 }
 
@@ -524,7 +576,7 @@ app.post('/api/quick-actions/run', (req, res) => {
       return res.status(400).json({ error: 'command is required' });
     }
 
-    console.log('[QUICK_ACTION] Executing command:', command);
+    log('info', '[QUICK_ACTION] Executing command:', command);
 
     if (!quickActionsRateLimiter(req)) {
       return res.status(429).json({ error: 'Too many requests. Please wait.' });
@@ -718,23 +770,23 @@ function startVNCServer() {
       var idx = line.indexOf('=');
       if (idx > 0) dbusEnv[line.substring(0, idx)] = line.substring(idx + 1);
     });
-    console.log('[dbus] session bus started: ' + (dbusEnv.DBUS_SESSION_BUS_ADDRESS || '(none)'));
+    log('info', '[dbus] session bus started: ' + (dbusEnv.DBUS_SESSION_BUS_ADDRESS || '(none)'));
   } catch (e) {
-    console.error('[dbus] failed to start: ' + e.message);
+    log('error', '[dbus] failed to start: ' + e.message);
   }
 
   var desktopEnv = { ...process.env, DISPLAY: ':1', ...dbusEnv };
   var osHome = require('os').userInfo().homedir;
-  console.log('[desktop] process.env.HOME=' + process.env.HOME + ', os.userInfo().homedir=' + osHome + ', uid=' + process.getuid());
+  log('info', '[desktop] process.env.HOME=' + process.env.HOME + ', os.userInfo().homedir=' + osHome + ', uid=' + process.getuid());
   desktopEnv.HOME = osHome;
 
   function spawnDesktop(name, args, delay) {
     setTimeout(function() {
       var proc = spawn(name, args, { stdio: 'pipe', env: desktopEnv });
       proc.stderr.on('data', function(d) { console.error('[' + name + ']', d.toString().trim()); });
-      proc.on('exit', function(code) { console.log('[' + name + '] exited with code ' + code); });
+      proc.on('exit', function(code) { log('info', '[' + name + '] exited with code ' + code); });
       installState.vncProcesses.push(proc);
-      console.log('[' + name + '] started');
+      log('info', '[' + name + '] started');
     }, delay);
   }
 
@@ -757,9 +809,9 @@ function startVNCServer() {
       '-rfbport', String(VNC_RFB_PORT), '-nopw',
     ], { stdio: 'pipe' });
     vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
-    vnc.on('exit', (code) => console.log('[x11vnc] exited with code ' + code));
+    vnc.on('exit', (code) => log('info', '[x11vnc] exited with code ' + code));
     installState.vncProcesses.push(vnc);
-    console.log('VNC server started on port ' + VNC_RFB_PORT);
+    log('info', 'VNC server started on port ' + VNC_RFB_PORT);
   }, 15000);
 }
 
@@ -819,10 +871,9 @@ app.get('/api/update-status', function(req, res) { res.json(updateStatus); });
 
 app.post('/api/update', function(req, res) {
   res.json({ success: true, message: 'Pulling latest code and restarting server...' });
-  console.log('Update requested - pulling and restarting...');
-  stopVNCServer();
+  log('info', 'Update requested - pulling and restarting...');
   fs.writeFileSync('/tmp/workflow-restart-flag', '');
-  setImmediate(function() { process.exit(0); });
+  setImmediate(function() { gracefulShutdown('update'); });
 });
 
 app.post('/api/kill', (req, res) => {
@@ -830,9 +881,8 @@ app.post('/api/kill', (req, res) => {
     return res.status(429).json({ error: 'Too many requests. Please wait.' });
   }
   res.json({ success: true, message: 'Shutting down workflow shell...' });
-  console.log('Kill requested - shutting down...');
-  stopVNCServer();
-  setImmediate(() => process.exit(0));
+  log('info', 'Kill requested - shutting down...');
+  setImmediate(() => gracefulShutdown('kill'));
 });
 
 // ─── WebSocket Router ────────────────────────────────────────────────────
@@ -918,19 +968,19 @@ function handleTerminalWS(ws, url) {
         if (msg.type === 'input') ptyProcess.write(msg.data);
         else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
       } catch (e) {
-        console.warn('WS message error:', e.message);
+        log('warn', 'WS message error:', e.message);
       }
     });
 
     ptyProcess.onData((data) => {
       try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {
-        console.warn('WS send error:', e.message);
+        log('warn', 'WS send error:', e.message);
       }
     });
 
     ptyProcess.onExit(() => {
       try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {
-        console.warn('WS send error:', e.message);
+        log('warn', 'WS send error:', e.message);
       }
       try { ws.close(); } catch (e) {}
     });
@@ -1103,7 +1153,7 @@ setTimeout(checkForUpdates, 3000);
 setInterval(checkForUpdates, UPDATE_POLL_INTERVAL);
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('workflow-shell running on port ' + PORT);
-  console.log('Workspace: ' + WORKSPACE);
+  log('info', 'workflow-shell running on port ' + PORT);
+  log('info', 'Workspace: ' + WORKSPACE);
   startFileWatcher();
 });
