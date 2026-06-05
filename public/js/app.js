@@ -280,6 +280,7 @@ function renderFileList(items) {
 function updateFileCount(count) {
   if (dom.fileCountBadge) {
     dom.fileCountBadge.textContent = count > 0 ? count : '';
+    dom.fileCountBadge.title = (count || 0) + ' file' + (count !== 1 ? 's' : '');
   }
 }
 
@@ -1965,7 +1966,308 @@ document.addEventListener('drop', function(e) {
   });
 });
 
-// ─── File Extension Viewer (preview handler) ────────────────────────────────
+// ─── Improvements ───────────────────────────────────────────────────────────
+
+// --- 1. Tunnel URL Display ---
+(function() {
+  var el = document.getElementById('tunnel-url');
+  var textEl = document.getElementById('tunnel-url-text');
+  if (!el) return;
+  function fetchTunnelUrl() {
+    fetch('/api/tunnel-url', { headers: { 'x-session-token': getSessionToken() } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.url) {
+          textEl.textContent = d.url;
+          el.title = 'Click to copy: ' + d.url;
+        }
+      })
+      .catch(function() {});
+  }
+  fetchTunnelUrl();
+  setInterval(fetchTunnelUrl, 10000);
+  el.addEventListener('click', function() {
+    if (!textEl.textContent || textEl.textContent === 'Connecting...') return;
+    navigator.clipboard.writeText(textEl.textContent).then(function() {
+      toast('Tunnel URL copied to clipboard', 'fa-copy', 'var(--success)');
+    }).catch(function() {});
+  });
+})();
+
+// --- 2. Workspace Path Display ---
+(function() {
+  var el = document.getElementById('workspace-path');
+  if (!el) return;
+  fetch('/api/cwd', { headers: { 'x-session-token': getSessionToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      el.textContent = d.path || d.cwd || '';
+    })
+    .catch(function() {});
+})();
+
+// --- 3. Welcome Overlay ---
+(function() {
+  var overlay = document.getElementById('welcome-overlay');
+  var dismiss = document.getElementById('welcome-dismiss');
+  var workspaceEl = document.getElementById('welcome-workspace');
+  if (!overlay || !dismiss) return;
+  if (localStorage.getItem('wfs-welcome-dismissed')) {
+    overlay.style.display = 'none';
+  }
+  fetch('/api/cwd', { headers: { 'x-session-token': getSessionToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (workspaceEl) workspaceEl.textContent = 'Workspace: ' + (d.path || d.cwd || '');
+    }).catch(function() {});
+  dismiss.addEventListener('click', function() {
+    overlay.style.display = 'none';
+    localStorage.setItem('wfs-welcome-dismissed', '1');
+  });
+})();
+
+// --- 5. Image/PDF Preview ---
+var previewOverlay = document.getElementById('preview-overlay');
+var previewBody = document.getElementById('preview-body');
+var previewFilename = document.getElementById('preview-filename');
+var previewClose = document.getElementById('preview-close');
+
+function showPreview(fileName, filePath) {
+  if (!previewOverlay) return;
+  previewFilename.textContent = fileName;
+  var ext = getExtension(fileName);
+  previewBody.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div>';
+  var token = getSessionToken();
+  function loadPreview() {
+    var previewUrl = '/api/file?path=' + encodeURIComponent(filePath) + '&download=1';
+    return fetch(previewUrl, { headers: { 'x-session-token': token } })
+      .then(function(r) {
+        if (!r.ok) throw new Error('Failed to load');
+        return r.blob();
+      })
+      .then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        previewBody.innerHTML = '';
+        if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'].indexOf(ext) !== -1) {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = fileName;
+          img.onerror = function() { previewBody.innerHTML = '<div class="search-empty"><i class="fas fa-file-image"></i><p>Failed to load image</p></div>'; };
+          previewBody.appendChild(img);
+        } else if (ext === 'pdf') {
+          var iframe = document.createElement('iframe');
+          iframe.src = url;
+          iframe.title = fileName;
+          previewBody.appendChild(iframe);
+        } else if (['mp4', 'webm', 'ogg', 'mov'].indexOf(ext) !== -1) {
+          var video = document.createElement('video');
+          video.controls = true;
+          video.autoplay = true;
+          video.style.maxWidth = '100%';
+          video.style.maxHeight = '100%';
+          var source = document.createElement('source');
+          source.src = url;
+          source.type = 'video/' + ext;
+          video.appendChild(source);
+          previewBody.appendChild(video);
+        }
+      })
+      .catch(function() {
+        previewBody.innerHTML = '<div class="search-empty"><i class="fas fa-eye"></i><p>Preview not available. Open in editor instead.</p></div>';
+      });
+  }
+  loadPreview();
+  previewOverlay.style.display = 'flex';
+  var container = document.getElementById('terminal-container');
+  if (container) container.style.display = 'none';
+}
+
+if (previewClose) {
+  previewClose.addEventListener('click', function() {
+    previewOverlay.style.display = 'none';
+    var container = document.getElementById('terminal-container');
+    if (container) container.style.display = 'flex';
+  });
+}
+
+// Extend file open to show preview for image/video/PDF files
+var _previewExtensions = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'pdf', 'mp4', 'webm', 'ogg', 'mov'];
+// Save reference to original openEditor (from line 881)
+var _origOpenEditorFn = typeof openEditor === 'function' ? openEditor : null;
+// Override openEditor to intercept previewable files
+if (_origOpenEditorFn && previewOverlay) {
+  openEditor = function(fileName) {
+    var ext = getExtension(fileName);
+    if (_previewExtensions.indexOf(ext) !== -1) {
+      var filePath = joinPath(state.currentPath, fileName);
+      showPreview(fileName, filePath);
+      return;
+    }
+    _origOpenEditorFn(fileName);
+  };
+}
+
+// --- 6. Terminal Theme Selector ---
+(function() {
+  var select = document.getElementById('terminal-theme-select');
+  if (!select) return;
+  var saved = localStorage.getItem('wfs-terminal-theme') || 'default';
+  select.value = saved;
+  applyTerminalTheme(saved);
+  select.addEventListener('change', function() {
+    var theme = this.value;
+    localStorage.setItem('wfs-terminal-theme', theme);
+    applyTerminalTheme(theme);
+  });
+})();
+
+function applyTerminalTheme(theme) {
+  var container = document.getElementById('terminal-container');
+  if (!container) return;
+  var xtermEl = container.querySelector('.xterm');
+  if (!xtermEl) return;
+  xtermEl.dataset.theme = theme;
+  // Theme switching via CSS variables
+  var themes = {
+    default: { bg: '#1a1b26', fg: '#c0caf5' },
+    light: { bg: '#ffffff', fg: '#1a1a2e' },
+    dracula: { bg: '#282a36', fg: '#f8f8f2' },
+    monokai: { bg: '#272822', fg: '#f8f8f2' },
+    solarized: { bg: '#002b36', fg: '#839496' },
+  };
+  var t = themes[theme] || themes.default;
+  if (typeof term !== 'undefined' && term) {
+    try { term.setOption('theme', { background: t.bg, foreground: t.fg }); } catch (e) {}
+  }
+}
+
+// --- 7. Quick Actions Command History ---
+var qaHistory = JSON.parse(localStorage.getItem('wfs-qa-history') || '[]');
+var historySection = document.getElementById('qa-history-section');
+var historyList = document.getElementById('qa-history-list');
+var historyClear = document.getElementById('qa-history-clear');
+
+function renderQaHistory() {
+  if (!historyList) return;
+  if (!qaHistory.length) {
+    historyList.innerHTML = '<div class="qa-history-empty"><i class="fas fa-clock-rotate-left"></i> No command history yet</div>';
+    if (historySection) historySection.style.display = 'none';
+    return;
+  }
+  if (historySection) historySection.style.display = 'block';
+  historyList.innerHTML = qaHistory.map(function(h, i) {
+    return '<div class="qa-history-item" data-idx="' + i + '">' +
+      '<span class="qa-history-name">' + escapeHtml(h.name) + '</span>' +
+      '<span class="qa-history-cmd">$ ' + escapeHtml(h.command) + '</span>' +
+      '<span class="qa-history-time">' + h.time + '</span>' +
+    '</div>';
+  }).join('');
+  historyList.querySelectorAll('.qa-history-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      var idx = parseInt(this.dataset.idx, 10);
+      var entry = qaHistory[idx];
+      if (entry) {
+        toast('Executed: ' + entry.name, 'fa-clock-rotate-left', 'var(--accent)');
+        api('/api/quick-actions/run', {
+          method: 'POST',
+          body: JSON.stringify({ command: entry.command }),
+        }).then(function() {}).catch(function() {});
+      }
+    });
+  });
+}
+
+function addQaHistory(name, command) {
+  qaHistory.unshift({
+    name: name,
+    command: command,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  });
+  if (qaHistory.length > 50) qaHistory = qaHistory.slice(0, 50);
+  localStorage.setItem('wfs-qa-history', JSON.stringify(qaHistory));
+  renderQaHistory();
+}
+
+if (historyClear) {
+  historyClear.addEventListener('click', function() {
+    qaHistory = [];
+    localStorage.removeItem('wfs-qa-history');
+    renderQaHistory();
+  });
+}
+
+renderQaHistory();
+
+// Patch into runQuickAction
+var _origRunQa = runQuickAction;
+runQuickAction = function(action) {
+  addQaHistory(action.Command_Name, action.Command);
+  _origRunQa(action);
+};
+
+// --- 8. Auto-refresh file list (fallback) ---
+(function() {
+  var refreshTimer = null;
+  function scheduleRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function() {
+      if (document.getElementById('file-list').children.length === 0 && state.currentPath) {
+        loadDir(state.currentPath);
+      }
+    }, 30000);
+  }
+  scheduleRefresh();
+})();
+
+// --- 9. Multi-file Selection (simplified) ---
+var multiSelectMode = false;
+var selectedFiles = [];
+
+function toggleMultiSelect() {
+  multiSelectMode = !multiSelectMode;
+  document.getElementById('file-pane').classList.toggle('multi-select-mode', multiSelectMode);
+  if (!multiSelectMode) {
+    selectedFiles = [];
+  }
+}
+
+// --- 10. Process Running Indicator ---
+var processIndicator = document.getElementById('process-indicator');
+var terminalActivityTimer = null;
+
+function showProcessIndicator() {
+  if (processIndicator) processIndicator.style.display = 'inline-flex';
+  clearTimeout(terminalActivityTimer);
+  terminalActivityTimer = setTimeout(function() {
+    if (processIndicator) processIndicator.style.display = 'none';
+  }, 5000);
+}
+
+// --- 11. Better Error Toasts ---
+function showErrorToast(message, details) {
+  var fullMsg = message;
+  if (details) fullMsg += ' — ' + details;
+  toast(fullMsg, 'fa-circle-exclamation', 'var(--danger)');
+}
+
+// --- 12. Confirm on Unsaved Terminal Process ---
+var _origSwitchPaneTab = switchPaneTab;
+switchPaneTab = function(tab) {
+  if (processIndicator && processIndicator.style.display !== 'none' && tab !== 'terminal') {
+    if (!confirm('A terminal process may still be running. Switch tabs?')) return;
+  }
+  _origSwitchPaneTab(tab);
+};
+
+// --- 13. Time-based Theme Sync for xterm when theme changes ---
+var _origThemeToggle = themeToggle;
+if (themeToggle) {
+  themeToggle.addEventListener('click', function() {
+    setTimeout(function() {
+      applyTerminalTheme(localStorage.getItem('wfs-terminal-theme') || 'default');
+    }, 100);
+  });
+}
 
 // ─── Watch for file changes (hot reload) ────────────────────────────────────
 
