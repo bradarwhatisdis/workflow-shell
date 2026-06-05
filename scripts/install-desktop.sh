@@ -14,11 +14,11 @@ echo "[STATUS] Starting desktop installation..."
 echo "[1/4] Updating package lists..."
 sudo apt-get update -qq 2>&1 || echo "[WARN] apt-get update failed, continuing..."
 
-echo "[2/4] Installing Xfce desktop and dependencies..."
-sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" xfce4 xvfb x11vnc dbus-x11 2>&1 || {
+echo "[2/4] Installing fluxbox and dependencies..."
+sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" fluxbox xvfb x11vnc 2>&1 || {
   echo "[ERROR] Package installation failed. Trying with --fix-broken..."
   sudo apt-get --fix-broken install -y 2>&1
-  sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" xfce4 xvfb x11vnc dbus-x11 2>&1 || {
+  sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" fluxbox xvfb x11vnc 2>&1 || {
     echo "[ERROR] Desktop installation failed."
     exit 1
   }
