@@ -1562,19 +1562,59 @@ function activateDesktop() {
   var installView = document.getElementById('desktop-install');
   var dot = document.getElementById('desktop-dot');
   var statusText = document.getElementById('desktop-status-text');
+  var progressFill = document.getElementById('install-progress-fill');
+  var progressLabel = document.getElementById('install-progress-label');
+  var elapsedEl = document.getElementById('install-elapsed');
+  var retryBtn = document.getElementById('install-retry-btn');
+  var subtitle = document.getElementById('install-subtitle');
+  var installStart = Date.now();
+  var elapsedTimer = null;
+  var currentStep = 0;
+  var totalSteps = 4;
 
   function setStatus(state, msg) {
     dot.className = 'status-dot ' + state;
     statusText.textContent = msg;
   }
 
+  function updateElapsed() {
+    var sec = Math.floor((Date.now() - installStart) / 1000);
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    elapsedEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
   function appendLog(text) {
     logContent.textContent += text;
     logContent.scrollTop = logContent.scrollHeight;
+    // Parse step markers from install script output
+    var stepMatch = text.match(/\[(\d+)\/(\d+)\]/);
+    if (stepMatch) {
+      currentStep = parseInt(stepMatch[1], 10);
+      totalSteps = parseInt(stepMatch[2], 10);
+      var pct = Math.round((currentStep / totalSteps) * 100);
+      if (progressFill) progressFill.style.width = Math.min(pct, 95) + '%';
+      var stepNames = ['', 'Updating packages', 'Installing desktop', 'Setting up VNC', 'Finalizing'];
+      var name = stepNames[currentStep] || 'Installing...';
+      if (progressLabel) progressLabel.textContent = name;
+      if (subtitle) subtitle.textContent = 'Step ' + currentStep + ' of ' + totalSteps + ': ' + name;
+    }
+    if (text.indexOf('[DONE]') !== -1) {
+      if (progressFill) progressFill.style.width = '100%';
+      if (progressLabel) progressLabel.textContent = 'Installation complete';
+      if (subtitle) subtitle.textContent = 'Starting desktop...';
+    }
+    if (text.indexOf('[ERROR]') !== -1) {
+      if (progressFill) progressFill.style.background = 'var(--danger)';
+      if (progressLabel) progressLabel.textContent = 'Failed';
+      if (retryBtn) retryBtn.style.display = 'inline-flex';
+    }
   }
 
-  setStatus('connecting', 'Installing Ubuntu Desktop...');
+  setStatus('connecting', 'Installing desktop...');
   appendLog('Connecting to installation service...\n');
+  updateElapsed();
+  elapsedTimer = setInterval(updateElapsed, 1000);
 
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var token = getSessionToken();
@@ -1593,20 +1633,31 @@ function activateDesktop() {
   };
 
   installWs.onclose = function() {
+    clearInterval(elapsedTimer);
     setStatus('connecting', 'Checking installation status...');
     appendLog('\n[Connection closed. Checking if desktop is ready...]\n');
 
     setTimeout(function() {
       var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       var token = getSessionToken();
-      // Pass token as query param for noVNC compatibility
       var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token || '');
       var retries = 0;
       var maxRetries = 90;
       var retryDelay = 3000;
+      var probeStart = Date.now();
+
+      function setProbeStatus(msg) {
+        setStatus('connecting', msg);
+        if (subtitle) subtitle.textContent = msg;
+      }
 
       function probeVnc() {
-        appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
+        var elapsedProbe = Math.floor((Date.now() - probeStart) / 1000);
+        var pct = Math.min(95 + Math.round((retries / maxRetries) * 5), 99);
+        if (progressFill) progressFill.style.width = pct + '%';
+        if (progressLabel) progressLabel.textContent = 'Waiting for VNC (' + (retries + 1) + '/' + maxRetries + ')';
+        if (elapsedEl) elapsedEl.textContent = formatTime(Math.floor((Date.now() - installStart) / 1000));
+        setProbeStatus('Starting desktop... (' + (retries + 1) + '/' + maxRetries + ')');
         var testWs = new WebSocket(testUrl);
         var done = false;
 
@@ -1616,11 +1667,14 @@ function activateDesktop() {
           testWs.close();
           retries++;
           if (retries < maxRetries) {
-            appendLog('[VNC not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
-            setTimeout(probeVnc, retryDelay);
+            appendLog('[Desktop not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
+            setTimeout(probeVnc, retryDelay / 2);
           } else {
-            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts. Switch tabs to retry.]\n');
+            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts.]\n');
             setStatus('error', 'Desktop unavailable');
+            if (progressLabel) progressLabel.textContent = 'Failed';
+            if (subtitle) subtitle.textContent = 'Desktop failed to start. Click Retry.';
+            if (retryBtn) retryBtn.style.display = 'inline-flex';
             desktopActivated = false;
           }
         }
@@ -1629,7 +1683,11 @@ function activateDesktop() {
           if (done) return;
           done = true;
           testWs.close();
+          clearInterval(elapsedTimer);
           setStatus('connected', 'Desktop ready');
+          if (progressFill) progressFill.style.width = '100%';
+          if (progressLabel) progressLabel.textContent = 'Desktop ready';
+          if (subtitle) subtitle.textContent = 'Desktop is running!';
           appendLog('[Desktop connection established]\n');
           installView.style.display = 'none';
           var openBtn = document.getElementById('desktop-open-tab');
@@ -1637,7 +1695,6 @@ function activateDesktop() {
           openBtn.click();
         }
 
-        // Wait for RFB protocol data from VNC proxy
         testWs.onmessage = function() { succeed(); };
         testWs.onerror = function() { fail(); };
         testWs.onclose = function() { fail(); };
@@ -1648,10 +1705,37 @@ function activateDesktop() {
   };
 
   installWs.onerror = function() {
+    clearInterval(elapsedTimer);
     appendLog('\n[Failed to connect to installation service]\n');
     setStatus('error', 'Connection failed');
+    if (progressLabel) progressLabel.textContent = 'Connection failed';
+    if (retryBtn) retryBtn.style.display = 'inline-flex';
     desktopActivated = false;
   };
+
+  // Retry button resets and re-activates
+  if (retryBtn) {
+    retryBtn.addEventListener('click', function() {
+      retryBtn.style.display = 'none';
+      if (progressFill) {
+        progressFill.style.width = '0%';
+        progressFill.style.background = '';
+      }
+      if (progressLabel) progressLabel.textContent = 'Starting...';
+      if (elapsedEl) elapsedEl.textContent = '—';
+      if (subtitle) subtitle.textContent = 'Xfce desktop is being installed on the server. This may take 1-3 minutes...';
+      desktopActivated = false;
+      if (installWs) { try { installWs.close(); } catch (e) {} }
+      logContent.textContent = 'Restarting installation...\n';
+      activateDesktop();
+    });
+  }
+}
+
+function formatTime(sec) {
+  var m = Math.floor(sec / 60);
+  var s = sec % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
 document.getElementById('desktop-open-tab').addEventListener('click', function() {
