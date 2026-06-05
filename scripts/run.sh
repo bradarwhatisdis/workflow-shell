@@ -98,6 +98,12 @@ echo ""
 echo "=========================================="
 echo "Tunnel URL: $TUNNEL_URL"
 echo "=========================================="
+
+# POST the tunnel URL to the server so it can be displayed in the UI
+curl -s -X POST http://localhost:8080/api/tunnel-url \
+  -H "Content-Type: application/json" \
+  -d "{\"url\": \"$TUNNEL_URL\"}" > /dev/null || true
+
 echo ""
 echo "Server logs (live):"
 tail -f /tmp/workflow-shell.log 2>/dev/null &
