@@ -19,6 +19,7 @@
         filePane.style.width = w + 'px';
         filePane.style.minWidth = w + 'px';
         filePane.style.flex = 'none';
+        resizer.style.left = w + 'px';
       }
     }
   }
@@ -45,6 +46,7 @@
     filePane.style.width = newWidth + 'px';
     filePane.style.minWidth = newWidth + 'px';
     filePane.style.flex = 'none';
+    resizer.style.left = newWidth + 'px';
   }
 
   function onEnd() {
