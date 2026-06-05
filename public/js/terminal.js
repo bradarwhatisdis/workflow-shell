@@ -17,6 +17,9 @@
     solarized: { background: '#002b36', foreground: '#839496', cursor: '#839496', cursorAccent: '#002b36', black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900', blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5', brightBlack: '#586e75', brightRed: '#cb4b16', brightGreen: '#859900', brightYellow: '#b58900', brightBlue: '#268bd2', brightMagenta: '#d33682', brightCyan: '#2aa198', brightWhite: '#fdf6e3' },
   };
 
+  // Expose for app.js real-time theme switching
+  window.termThemePresets = themePresets;
+
   var savedTheme = localStorage.getItem('wfs-terminal-theme') || 'default';
   var initialTheme = themePresets[savedTheme] || themePresets.default;
 
