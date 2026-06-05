@@ -9,6 +9,17 @@
     return;
   }
 
+  var themePresets = {
+    default: { background: '#1a1b26', foreground: '#c0caf5', cursor: '#c0caf5', cursorAccent: '#1a1b26', black: '#1d202f', red: '#f7768e', green: '#9ece6a', yellow: '#e0af68', blue: '#7aa2f7', magenta: '#bb9af7', cyan: '#7dcfff', white: '#a9b1d6', brightBlack: '#414868', brightRed: '#f7768e', brightGreen: '#9ece6a', brightYellow: '#e0af68', brightBlue: '#7aa2f7', brightMagenta: '#bb9af7', brightCyan: '#7dcfff', brightWhite: '#c0caf5' },
+    light: { background: '#ffffff', foreground: '#1a1a2e', cursor: '#1a1a2e', cursorAccent: '#ffffff', black: '#333333', red: '#cc3333', green: '#228833', yellow: '#ccaa22', blue: '#3366cc', magenta: '#8833cc', cyan: '#228899', white: '#cccccc', brightBlack: '#666666', brightRed: '#cc5555', brightGreen: '#44aa55', brightYellow: '#ddbb33', brightBlue: '#5577dd', brightMagenta: '#aa55dd', brightCyan: '#44aabb', brightWhite: '#eeeeee' },
+    dracula: { background: '#282a36', foreground: '#f8f8f2', cursor: '#f8f8f2', cursorAccent: '#282a36', black: '#21222c', red: '#ff5555', green: '#50fa7b', yellow: '#f1fa8c', blue: '#6272a4', magenta: '#ff79c6', cyan: '#8be9fd', white: '#f8f8f2', brightBlack: '#6272a4', brightRed: '#ff6e6e', brightGreen: '#69ff94', brightYellow: '#ffffa5', brightBlue: '#8fa4d4', brightMagenta: '#ff92df', brightCyan: '#a4ffff', brightWhite: '#ffffff' },
+    monokai: { background: '#272822', foreground: '#f8f8f2', cursor: '#f8f8f2', cursorAccent: '#272822', black: '#272822', red: '#f92672', green: '#a6e22e', yellow: '#f4bf75', blue: '#66d9ef', magenta: '#ae81ff', cyan: '#a1efe4', white: '#f8f8f2', brightBlack: '#75715e', brightRed: '#f92672', brightGreen: '#a6e22e', brightYellow: '#f4bf75', brightBlue: '#66d9ef', brightMagenta: '#ae81ff', brightCyan: '#a1efe4', brightWhite: '#f9f8f5' },
+    solarized: { background: '#002b36', foreground: '#839496', cursor: '#839496', cursorAccent: '#002b36', black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900', blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5', brightBlack: '#586e75', brightRed: '#cb4b16', brightGreen: '#859900', brightYellow: '#b58900', brightBlue: '#268bd2', brightMagenta: '#d33682', brightCyan: '#2aa198', brightWhite: '#fdf6e3' },
+  };
+
+  var savedTheme = localStorage.getItem('wfs-terminal-theme') || 'default';
+  var initialTheme = themePresets[savedTheme] || themePresets.default;
+
   var term = new Terminal({
     fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
     fontSize: 18,
@@ -16,30 +27,10 @@
     cursorStyle: 'bar',
     scrollback: 10000,
     allowTransparency: true,
-    theme: {
-      background: '#000000',
-      foreground: '#e0e0e0',
-      cursor: '#ffffff',
-      cursorAccent: '#000000',
-      selectionBackground: 'rgba(255,255,255,0.12)',
-      black: '#222222',
-      red: '#e03030',
-      green: '#1a8a5a',
-      yellow: '#bb8800',
-      blue: '#3080cc',
-      magenta: '#888888',
-      cyan: '#666666',
-      white: '#cccccc',
-      brightBlack: '#444444',
-      brightRed: '#e05050',
-      brightGreen: '#2aaa6a',
-      brightYellow: '#ddaa00',
-      brightBlue: '#4090dd',
-      brightMagenta: '#aaaaaa',
-      brightCyan: '#888888',
-      brightWhite: '#ffffff',
-    },
+    theme: initialTheme,
   });
+
+  window.term = term;
 
   var fitAddon;
   if (FitAddon && FitAddon.FitAddon) {
@@ -93,8 +84,13 @@
 
     ws.onmessage = function(event) {
       var msg = JSON.parse(event.data);
-      if (msg.type === 'output') term.write(msg.data);
-      else if (msg.type === 'exit') term.write('\r\n[Session ended]\r\n');
+      if (msg.type === 'output') {
+        if (!termReady) termReady = true;
+        term.write(msg.data);
+        if (typeof showProcessIndicator === 'function') showProcessIndicator();
+      } else if (msg.type === 'exit') {
+        term.write('\r\n[Session ended]\r\n');
+      }
     };
 
     ws.onclose = function() {
