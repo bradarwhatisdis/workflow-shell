@@ -2203,22 +2203,11 @@ if (_origOpenEditorFn && previewOverlay) {
 })();
 
 function applyTerminalTheme(theme) {
-  var container = document.getElementById('terminal-container');
-  if (!container) return;
-  var xtermEl = container.querySelector('.xterm');
-  if (!xtermEl) return;
-  xtermEl.dataset.theme = theme;
-  // Theme switching via CSS variables
-  var themes = {
-    default: { bg: '#1a1b26', fg: '#c0caf5' },
-    light: { bg: '#ffffff', fg: '#1a1a2e' },
-    dracula: { bg: '#282a36', fg: '#f8f8f2' },
-    monokai: { bg: '#272822', fg: '#f8f8f2' },
-    solarized: { bg: '#002b36', fg: '#839496' },
-  };
-  var t = themes[theme] || themes.default;
+  var presets = window.termThemePresets;
+  if (!presets) return;
+  var t = presets[theme] || presets.default;
   if (typeof term !== 'undefined' && term) {
-    try { term.setOption('theme', { background: t.bg, foreground: t.fg }); } catch (e) {}
+    try { term.setOption('theme', t); } catch (e) {}
   }
 }
 
