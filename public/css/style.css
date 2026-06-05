@@ -808,7 +808,7 @@ main {
 
 .resizer {
   position: absolute;
-  left: 300px;
+  left: 340px;
   top: 0;
   bottom: 0;
   width: 4px;
@@ -874,7 +874,7 @@ main {
   transition: all 0.2s var(--ease);
 }
 .qa-card:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-1px); box-shadow: var(--shadow); }
-.qa-card.default { border-left: 3px solid var(--accent); }
+.qa-card.default { box-shadow: inset 3px 0 0 0 var(--accent); }
 .qa-info { flex: 1; min-width: 0; }
 
 .qa-name {
@@ -1798,6 +1798,7 @@ kbd {
     margin-left: 0;
   }
   .file-item .meta { display: none; }
+  .file-item .actions { opacity: 1; }
   .topbar-nav .pane-tab { padding: 4px 8px; font-size: 0.72rem; }
   .topbar-nav .pane-tab span { display: none; }
 }
