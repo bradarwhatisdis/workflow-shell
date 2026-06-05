@@ -18,10 +18,9 @@ echo ""
 # ─── Create workflow-shell user if missing ──────────────────────
 if ! id -u "$USERNAME" &>/dev/null; then
   echo "[1/3] Creating system user '$USERNAME'..."
+  # Dioptimalkan: Mengunci ke /bin/bash dan quoting aman
   sudo useradd -m -s /bin/bash "$USERNAME"
   sudo usermod -aG sudo "$USERNAME"
-  echo "$USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/usermod, /bin/mkdir, /bin/chown, /bin/chmod, /usr/bin/tee, /bin/rm, /bin/mv, /usr/bin/apt-get, /usr/bin/git, /usr/bin/pkill" | sudo tee /etc/sudoers.d/"$USERNAME" >/dev/null
-  echo "  User created: $USERNAME (home: $USER_HOME, sudo: restricted commands)"
 else
   echo "[1/3] System user '$USERNAME' already exists."
 fi
@@ -32,8 +31,6 @@ sudo mkdir -p "$WORKSPACE_DIR"
 sudo chown -R "$USERNAME:$USERNAME" "$WORKSPACE_DIR"
 
 # Let workflow-shell access the repo by adding it to the runner's group
-# and making parent directories traversable (GitHub Actions puts repo
-# under /home/runner/ which is 700 by default)
 RUNNER_GROUP=$(id -gn 2>/dev/null || echo "root")
 sudo usermod -aG "$RUNNER_GROUP" "$USERNAME" 2>/dev/null || true
 sudo chmod +x /home/runner 2>/dev/null || true
@@ -76,7 +73,7 @@ done
 echo ""
 echo "Starting tunnel via Cloudflare..."
 for i in 1 2 3; do
-  [ $i -gt 1 ] && echo "Retrying tunnel ($i/3)..."
+  [ "$i" -gt 1 ] && echo "Retrying tunnel ($i/3)..."
   cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
   TUNNEL_PID=$!
   sleep 8
@@ -109,11 +106,12 @@ echo "Server logs (live):"
 tail -f /tmp/workflow-shell.log 2>/dev/null &
 TAIL_PID=$!
 
-# Monitor and restart loop — when server dies, optionally restart for updates
+# Monitor and restart loop
 RESTART_FLAG="/tmp/workflow-restart-flag"
 sudo rm -f "$RESTART_FLAG" 2>/dev/null || true
+
 cleanup() {
-  kill ${TAIL_PID:-} ${TUNNEL_PID:-} ${SERVER_PID:-} 2>/dev/null || true
+  kill "${TAIL_PID:-}" "${TUNNEL_PID:-}" "${SERVER_PID:-}" 2>/dev/null || true
   echo ''
   echo '=== FULL SERVER LOG ==='
   cat /tmp/workflow-shell.log 2>/dev/null || true
@@ -121,12 +119,19 @@ cleanup() {
 trap cleanup EXIT
 
 while true; do
-  while kill -0 "$SERVER_PID" 2>/dev/null; do
+  # Peningkatan: Loop sekarang memantau KEDUA proses (Server DAN Tunnel)
+  while kill -0 "$SERVER_PID" 2>/dev/null && kill -0 "$TUNNEL_PID" 2>/dev/null; do
     sleep 1
   done
 
-  if [ ! -f "$RESTART_FLAG" ]; then
-    echo "Server process exited. Shutting down..."
+  # Jika tunnel yang mati duluan, kita matikan server sekalian agar memicu restart total
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null && kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "Cloudflare tunnel dropped. Triggering full restart..."
+    kill "$SERVER_PID" 2>/dev/null || true
+  fi
+
+  if [ ! -f "$RESTART_FLAG" ] && [ ! -f "/tmp/tunnel.log" ]; then
+    echo "Critical process exited. Shutting down..."
     break
   fi
 
@@ -140,6 +145,13 @@ while true; do
   SERVER_PID=$!
   echo "Server PID: $SERVER_PID"
   echo "--- restart at $(date) ---" >> /tmp/workflow-shell.log
+
+  # Menghidupkan kembali tunnel jika sempat mati
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "Restarting Cloudflare tunnel..."
+    cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
+    TUNNEL_PID=$!
+  fi
 
   for i in {1..15}; do
     if curl -s http://localhost:8080/api/cwd > /dev/null 2>&1; then
