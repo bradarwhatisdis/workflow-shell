@@ -28,7 +28,7 @@ jobs:
           ./scripts/setup.sh
 
       - name: Run Workspace Shell
-        timeout-minutes: 25
+        timeout-minutes: 120
         run: |
           if [ "${{ inputs.enable_login }}" = "true" ]; then
             export USERNAME="${{ secrets.USERNAME }}"
