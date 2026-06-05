@@ -79,6 +79,13 @@ else
   echo "  cloudflared not found — install with: sudo apt install cloudflared"
 fi
 
+# POST the tunnel URL to the server
+if [ -n "$TUNNEL_URL" ]; then
+  curl -s -X POST http://localhost:8080/api/tunnel-url \
+    -H "Content-Type: application/json" \
+    -d "{\"url\": \"$TUNNEL_URL\"}" > /dev/null || true
+fi
+
 echo ""
 echo "=========================================="
 echo "  Workflow Shell is running!"
