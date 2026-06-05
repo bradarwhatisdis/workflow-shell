@@ -1769,6 +1769,32 @@ kbd {
 .install-log-content::-webkit-scrollbar { width: 6px; }
 .install-log-content::-webkit-scrollbar-track { background: transparent; }
 .install-log-content::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+/* Install progress bar */
+.install-progress-wrap {
+  width: 100%; max-width: 700px;
+  display: flex; align-items: center; gap: 10px;
+}
+.install-progress-bar {
+  flex: 1; height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px; overflow: hidden;
+}
+.install-progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--accent), #7aa2f7);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.install-progress-label {
+  font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; min-width: 70px;
+}
+.install-elapsed {
+  font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;
+}
+#install-retry-btn {
+  margin-top: 8px;
+}
+
 .desktop-viewer {
   flex: 1; display: flex; overflow: hidden;
 }
