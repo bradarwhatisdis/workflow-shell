@@ -922,7 +922,22 @@ function closeEditor() {
 function downloadFile(fileName) {
   var filePath = joinPath(state.currentPath, fileName);
   var token = getSessionToken();
-  window.open('/api/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(token), '_blank');
+  fetch('/api/download?path=' + encodeURIComponent(filePath), {
+    headers: { 'x-session-token': token },
+  }).then(function(resp) {
+    if (!resp.ok) throw new Error('Download failed');
+    return resp.blob();
+  }).then(function(blob) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }).catch(function(err) {
+    toast('Download failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
+  });
 }
 
 document.getElementById('refresh-btn').addEventListener('click', function() {
@@ -1498,9 +1513,12 @@ function activateDesktop() {
 
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var token = getSessionToken();
-  var url = protocol + '//' + location.host + '/install/?token=' + encodeURIComponent(token);
+  var url = protocol + '//' + location.host + '/install/';
 
   installWs = new WebSocket(url);
+  installWs.onopen = function() {
+    if (token) installWs.send(JSON.stringify({ type: 'auth', token: token }));
+  };
 
   installWs.onmessage = function(event) {
     var msg = JSON.parse(event.data);
@@ -1516,7 +1534,7 @@ function activateDesktop() {
     setTimeout(function() {
       var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       var token = getSessionToken();
-      var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token);
+      var testUrl = protocol + '//' + location.host + '/vnc/';
       var retries = 0;
       var maxRetries = 90;
       var retryDelay = 3000;
@@ -1525,6 +1543,9 @@ function activateDesktop() {
         appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
         var testWs = new WebSocket(testUrl);
         var done = false;
+        testWs.onopen = function() {
+          if (token) testWs.send(JSON.stringify({ type: 'auth', token: token }));
+        };
 
         function fail() {
           if (done) return;
@@ -1620,7 +1641,7 @@ function initUpdateChecker() {
   btnEl.addEventListener('click', function() {
     btnEl.disabled = true;
     btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-    fetch('/api/update', { method: 'POST', headers: { 'x-session-token': getSessionToken() } })
+    api('/api/update', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(d) { showToast(d.message || 'Update started'); })
       .catch(function() { btnEl.disabled = false; btnEl.innerHTML = '<i class="fas fa-rotate"></i> Update'; });
@@ -1894,10 +1915,13 @@ document.addEventListener('drop', function(e) {
   function connectWatch() {
     var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var token = getSessionToken();
-    var wsUrl = protocol + '//' + location.host + '/watch/?token=' + encodeURIComponent(token);
+    var wsUrl = protocol + '//' + location.host + '/watch/';
     var ws;
     try {
       ws = new WebSocket(wsUrl);
+      ws.onopen = function() {
+        if (token) ws.send(JSON.stringify({ type: 'auth', token: token }));
+      };
       ws.onmessage = function() {
         loadDir(state.currentPath);
       };
