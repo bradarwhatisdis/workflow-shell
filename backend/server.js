@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
 const net = require('net');
+const dns = require('dns');
 const WebSocket = require('ws');
 const pty = require('node-pty');
 const path = require('path');
@@ -56,7 +57,7 @@ function authMiddleware(req, res, next) {
   if (!AUTH_ENABLED) return next();
   if (isPublicPath(req.path)) return next();
 
-  const token = req.headers['x-session-token'] || req.query.token;
+  const token = req.headers['x-session-token'];
   if (token) {
     const entry = sessions.get(token);
     if (entry) {
@@ -75,6 +76,16 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self';");
+  next();
+});
+
 app.use(authMiddleware);
 // Serve xterm.js and addon from node_modules
 app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
@@ -194,24 +205,72 @@ app.post('/api/login', (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-  const token = req.headers['x-session-token'] || req.query.token;
+  const token = req.headers['x-session-token'];
   if (token) sessions.delete(token);
   res.json({ success: true });
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+function resolveSymlinks(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch (e) {
+    const parent = path.dirname(p);
+    if (parent === p) return p;
+    try {
+      const resolvedParent = fs.realpathSync(parent);
+      return path.join(resolvedParent, path.basename(p));
+    } catch (e2) {
+      return null;
+    }
+  }
+}
+
+let RESOLVED_WORKSPACE = null;
+function getResolvedWorkspace() {
+  if (RESOLVED_WORKSPACE) return RESOLVED_WORKSPACE;
+  RESOLVED_WORKSPACE = resolveSymlinks(path.resolve(WORKSPACE));
+  return RESOLVED_WORKSPACE;
+}
+
 function getSafePath(reqPath) {
   if (!reqPath) return path.resolve(WORKSPACE);
   const clean = reqPath.startsWith('/') ? reqPath.slice(1) : reqPath;
   const fullPath = path.resolve(WORKSPACE, clean || '.');
-  if (!fullPath.startsWith(path.resolve(WORKSPACE))) return null;
-  return fullPath;
+  const resolvedWorkspace = getResolvedWorkspace();
+  if (!resolvedWorkspace) return null;
+  const resolvedPath = resolveSymlinks(fullPath);
+  if (!resolvedPath || !resolvedPath.startsWith(resolvedWorkspace)) return null;
+  return resolvedPath;
 }
 
 function sanitizeFilename(name) {
   return path.basename(name).replace(/[/\\]/g, '_');
 }
+
+function safeError(err, res) {
+  console.error('[ERROR]', err);
+  res.status(500).json({ error: 'Internal server error' });
+}
+
+function createRateLimiter(maxAttempts, windowMs) {
+  const attempts = new Map();
+  return (req) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    let entry = attempts.get(ip);
+    if (!entry || now - entry.window > windowMs) {
+      entry = { count: 0, window: now };
+      attempts.set(ip, entry);
+    }
+    entry.count++;
+    return entry.count <= maxAttempts;
+  };
+}
+
+const killRateLimiter = createRateLimiter(3, 60000);
+const quickActionsRateLimiter = createRateLimiter(30, 60000);
 
 // ─── File Manager API ──────────────────────────────────────────────────────
 
@@ -240,7 +299,7 @@ app.get('/api/files', (req, res) => {
     const relPath = path.relative(WORKSPACE, dir);
     res.json({ path: relPath === '' ? '/' : '/' + relPath, items: files });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -253,7 +312,7 @@ app.get('/api/file', (req, res) => {
     const content = fs.readFileSync(filePath, 'utf-8');
     res.json({ content, name: path.basename(filePath) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -272,7 +331,7 @@ app.put('/api/file', (req, res) => {
     fs.writeFileSync(filePath, req.body.content || '', 'utf-8');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -289,11 +348,34 @@ const uploadMiddleware = multer({
 
 app.post('/api/upload', (req, res) => {
   uploadMiddleware(req, res, (err) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return safeError(err, res);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     res.json({ success: true, filename: req.file.filename });
   });
 });
+
+function isPrivateIP(address) {
+  const parts = address.split('.').map(Number);
+  if (parts.length !== 4) return true;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 0) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+  if (parts[0] === 198 && parts[1] === 18) return true;
+  return false;
+}
+
+async function isPrivateHostname(hostname) {
+  try {
+    const { address } = await dns.promises.lookup(hostname, { verbatim: false });
+    return isPrivateIP(address);
+  } catch (e) {
+    return true;
+  }
+}
 
 app.post('/api/upload/url', async (req, res) => {
   try {
@@ -304,16 +386,27 @@ app.post('/api/upload/url', async (req, res) => {
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
     const urlObj = new URL(url);
+    if (urlObj.protocol !== 'https:' && urlObj.protocol !== 'http:') {
+      return res.status(400).json({ error: 'Invalid protocol' });
+    }
+
+    if (await isPrivateHostname(urlObj.hostname)) {
+      return res.status(400).json({ error: 'URL points to private or invalid network' });
+    }
+
     const fileName = sanitizeFilename(path.basename(urlObj.pathname) || 'download');
     const filePath = path.join(uploadDir, fileName);
 
-    const response = await fetch(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!response.ok) return res.status(400).json({ error: 'Failed to fetch URL: ' + response.status });
     const buffer = Buffer.from(await response.arrayBuffer());
     fs.writeFileSync(filePath, buffer);
     res.json({ success: true, filename: fileName });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -331,7 +424,7 @@ app.delete('/api/file', (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -343,7 +436,7 @@ app.get('/api/download', (req, res) => {
     }
     res.download(filePath);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -381,7 +474,7 @@ app.get('/api/quick-actions', (req, res) => {
     const actions = readQuickActions();
     res.json({ actions });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -401,7 +494,7 @@ app.post('/api/quick-actions', (req, res) => {
     const pushed = gitCommitAndPush('Add quick action: ' + command_name);
     res.json({ success: true, actions, pushed });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -420,7 +513,7 @@ app.delete('/api/quick-actions', (req, res) => {
     const pushed = gitCommitAndPush('Remove quick action: ' + command_name);
     res.json({ success: true, actions: filtered, pushed });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -430,7 +523,14 @@ app.post('/api/quick-actions/run', (req, res) => {
     if (!command) {
       return res.status(400).json({ error: 'command is required' });
     }
-    const result = execSync(command, {
+
+    console.log('[QUICK_ACTION] Executing command:', command);
+
+    if (!quickActionsRateLimiter(req)) {
+      return res.status(429).json({ error: 'Too many requests. Please wait.' });
+    }
+
+    const result = execFileSync('/bin/bash', ['-c', command], {
       cwd: REPO_ROOT,
       timeout: 30000,
       maxBuffer: 1024 * 1024,
@@ -461,7 +561,7 @@ app.get('/api/system-stats', (req, res) => {
       processes: parseInt(procs, 10),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -481,7 +581,7 @@ app.get('/api/git-status', (req, res) => {
     } catch (e) {}
     res.json({ branch, changes, log });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -510,7 +610,7 @@ app.get('/api/files/tree', (req, res) => {
     const relPath = path.relative(WORKSPACE, dir);
     res.json({ path: relPath === '' ? '/' : '/' + relPath, tree });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -533,7 +633,7 @@ app.get('/api/search', (req, res) => {
     res.json({ results });
   } catch (err) {
     if (err.status === 1) return res.json({ results: [] });
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -551,7 +651,7 @@ app.post('/api/file/move', (req, res) => {
     fs.renameSync(src, dst);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -568,7 +668,7 @@ app.post('/api/archive', (req, res) => {
     execFileSync('zip', ['-r', archiveName, ...relPaths], { cwd: WORKSPACE, stdio: 'pipe', timeout: 30000 });
     res.json({ success: true, file: archiveName });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -579,10 +679,23 @@ app.post('/api/extract', (req, res) => {
     const archivePath = getSafePath(archiveRel);
     if (!archivePath || !fs.existsSync(archivePath)) return res.status(404).json({ error: 'Archive not found' });
     const dest = path.dirname(archivePath);
+
+    // List entries and validate paths before extracting (Zip Slip prevention)
+    const listing = execFileSync('unzip', ['-Z1', path.basename(archivePath)], { cwd: dest, encoding: 'utf-8', timeout: 10000 }).trim();
+    if (listing) {
+      const entries = listing.split('\n').filter(Boolean);
+      for (const entry of entries) {
+        const resolved = path.resolve(dest, entry);
+        if (!resolved.startsWith(path.resolve(dest))) {
+          return res.status(400).json({ error: 'Archive contains invalid path entries' });
+        }
+      }
+    }
+
     execFileSync('unzip', ['-o', path.basename(archivePath)], { cwd: dest, stdio: 'pipe', timeout: 30000 });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    safeError(err, res);
   }
 });
 
@@ -713,6 +826,9 @@ app.post('/api/update', function(req, res) {
 });
 
 app.post('/api/kill', (req, res) => {
+  if (!killRateLimiter(req)) {
+    return res.status(429).json({ error: 'Too many requests. Please wait.' });
+  }
   res.json({ success: true, message: 'Shutting down workflow shell...' });
   console.log('Kill requested - shutting down...');
   stopVNCServer();
@@ -720,21 +836,6 @@ app.post('/api/kill', (req, res) => {
 });
 
 // ─── WebSocket Router ────────────────────────────────────────────────────
-
-function wsAuth(ws, url) {
-  if (!AUTH_ENABLED) return true;
-  const token = url.searchParams.get('token');
-  if (token) {
-    const entry = sessions.get(token);
-    if (entry && Date.now() - entry.time < SESSION_TTL) {
-      entry.time = Date.now();
-      return true;
-    }
-    if (entry) sessions.delete(token);
-  }
-  ws.close(4001, 'Authentication required');
-  return false;
-}
 
 function wsOriginCheck(ws, req) {
   const origin = req.headers.origin;
@@ -748,6 +849,35 @@ function wsOriginCheck(ws, req) {
   return false;
 }
 
+function requireWsAuth(ws, callback) {
+  if (!AUTH_ENABLED) {
+    callback();
+    return;
+  }
+
+  const timeout = setTimeout(() => {
+    ws.removeAllListeners('message');
+    ws.close(4001, 'Authentication timeout');
+  }, 5000);
+
+  ws.once('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.type === 'auth' && msg.token) {
+        const entry = sessions.get(msg.token);
+        if (entry && Date.now() - entry.time < SESSION_TTL) {
+          entry.time = Date.now();
+          clearTimeout(timeout);
+          callback();
+          return;
+        }
+      }
+    } catch (e) {}
+    clearTimeout(timeout);
+    ws.close(4001, 'Authentication required');
+  });
+}
+
 const WS_HEARTBEAT_INTERVAL = 30000;
 
 wss.on('connection', (ws, req) => {
@@ -755,7 +885,6 @@ wss.on('connection', (ws, req) => {
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
 
   if (!wsOriginCheck(ws, req)) return;
-  if (!wsAuth(ws, url)) return;
 
   if (pathname === '/install') return handleInstallWS(ws, url);
   if (pathname === '/vnc') return handleVncWS(ws, url);
@@ -770,81 +899,85 @@ function handleTerminalWS(ws, url) {
   const params = url.searchParams;
   const ptyCols = parseInt(params.get('cols'), 10) || 80;
   const ptyRows = parseInt(params.get('rows'), 10) || 30;
-  const ptyProcess = pty.spawn('/bin/bash', [], {
-    name: 'xterm-256color',
-    cols: ptyCols,
-    rows: ptyRows,
-    cwd: WORKSPACE,
-    env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' },
-  });
 
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+  requireWsAuth(ws, () => {
+    const ptyProcess = pty.spawn('/bin/bash', [], {
+      name: 'xterm-256color',
+      cols: ptyCols,
+      rows: ptyRows,
+      cwd: WORKSPACE,
+      env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' },
+    });
 
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.type === 'input') ptyProcess.write(msg.data);
-      else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
-    } catch (e) {
-      console.warn('WS message error:', e.message);
-    }
-  });
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
 
-  ptyProcess.onData((data) => {
-    try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {
-      console.warn('WS send error:', e.message);
-    }
-  });
+    ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type === 'input') ptyProcess.write(msg.data);
+        else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
+      } catch (e) {
+        console.warn('WS message error:', e.message);
+      }
+    });
 
-  ptyProcess.onExit(() => {
-    try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {
-      console.warn('WS send error:', e.message);
-    }
-    try { ws.close(); } catch (e) {}
-  });
+    ptyProcess.onData((data) => {
+      try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {
+        console.warn('WS send error:', e.message);
+      }
+    });
 
-  ws.on('close', () => {
-    try { ptyProcess.kill(); } catch (e) {}
+    ptyProcess.onExit(() => {
+      try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {
+        console.warn('WS send error:', e.message);
+      }
+      try { ws.close(); } catch (e) {}
+    });
+
+    ws.on('close', () => {
+      try { ptyProcess.kill(); } catch (e) {}
+    });
   });
 }
 
 // ─── Install WebSocket ───────────────────────────────────────────
 
 function handleInstallWS(ws, url) {
-  const send = (text) => {
-    try { ws.send(JSON.stringify({ type: 'log', data: text })); } catch (e) {}
-  };
+  requireWsAuth(ws, () => {
+    const send = (text) => {
+      try { ws.send(JSON.stringify({ type: 'log', data: text })); } catch (e) {}
+    };
 
-  const broadcast = (text) => {
-    installState.logs.push(text);
-    installState.listeners.forEach(fn => fn(text));
-  };
+    const broadcast = (text) => {
+      installState.logs.push(text);
+      installState.listeners.forEach(fn => fn(text));
+    };
 
-  const listener = (text) => send(text);
-  installState.listeners.push(listener);
+    const listener = (text) => send(text);
+    installState.listeners.push(listener);
 
-  for (const line of installState.logs) send(line);
+    for (const line of installState.logs) send(line);
 
-  if (installState.done) {
-    send('[DONE]\n');
-    ws.close();
-    installState.listeners = installState.listeners.filter(l => l !== listener);
-    return;
-  }
-
-  if (installState.running) {
-    send('[STATUS] Installation already in progress...\n');
-    ws.on('close', () => {
+    if (installState.done) {
+      send('[DONE]\n');
+      ws.close();
       installState.listeners = installState.listeners.filter(l => l !== listener);
-    });
-    return;
-  }
+      return;
+    }
 
-  installState.running = true;
-  send('[STATUS] Starting installation...\n');
+    if (installState.running) {
+      send('[STATUS] Installation already in progress...\n');
+      ws.on('close', () => {
+        installState.listeners = installState.listeners.filter(l => l !== listener);
+      });
+      return;
+    }
 
-  const proc = spawn('bash', [INSTALL_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
+    installState.running = true;
+    send('[STATUS] Starting installation...\n');
+
+    const proc = spawn('bash', [INSTALL_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   const onData = (data) => {
     const text = data.toString();
@@ -878,16 +1011,18 @@ function handleInstallWS(ws, url) {
   ws.on('close', () => {
     installState.listeners = installState.listeners.filter(l => l !== listener);
   });
+  });
 }
 
 // ─── VNC WebSocket Proxy ─────────────────────────────────────────
 
 function handleVncWS(ws, url) {
-  const msgBuffer = [];
+  requireWsAuth(ws, () => {
+    const msgBuffer = [];
 
-  ws.on('message', (data) => {
-    msgBuffer.push(data);
-  });
+    ws.on('message', (data) => {
+      msgBuffer.push(data);
+    });
 
   function connectToVnc(attempt) {
     const tcp = net.connect(VNC_RFB_PORT, 'localhost', () => {
@@ -934,14 +1069,17 @@ function handleVncWS(ws, url) {
   }
 
   connectToVnc(0);
+  });
 }
 
 // ─── Watch WebSocket ────────────────────────────────────────────
 
 function handleWatchWS(ws, url) {
-  watchClients.add(ws);
-  ws.on('close', () => watchClients.delete(ws));
-  ws.on('error', () => watchClients.delete(ws));
+  requireWsAuth(ws, () => {
+    watchClients.add(ws);
+    ws.on('close', () => watchClients.delete(ws));
+    ws.on('error', () => watchClients.delete(ws));
+  });
 }
 
 const heartbeatTimer = setInterval(() => {
