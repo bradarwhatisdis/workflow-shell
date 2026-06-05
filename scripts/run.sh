@@ -21,6 +21,7 @@ if ! id -u "$USERNAME" &>/dev/null; then
   # Dioptimalkan: Mengunci ke /bin/bash dan quoting aman
   sudo useradd -m -s /bin/bash "$USERNAME"
   sudo usermod -aG sudo "$USERNAME"
+  echo "workflow-shell ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/workflow-shell
 else
   echo "[1/3] System user '$USERNAME' already exists."
 fi
