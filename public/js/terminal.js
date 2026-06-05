@@ -76,17 +76,15 @@
     var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var token = localStorage.getItem('wfs-session-token') || '';
     var wsUrl = protocol + '//' + location.host;
-    var p = [];
-    if (token) p.push('token=' + encodeURIComponent(token));
-    p.push('cols=' + term.cols);
-    p.push('rows=' + term.rows);
-    wsUrl += '?' + p.join('&');
+    wsUrl += '?cols=' + term.cols + '&rows=' + term.rows;
 
     ws = new WebSocket(wsUrl);
     termReady = false;
 
     ws.onopen = function() {
-      termReady = true;
+      if (token) {
+        ws.send(JSON.stringify({ type: 'auth', token: token }));
+      }
       reconnectAttempt = 0;
       for (var i = 0; i < buffer.length; i++) ws.send(JSON.stringify(buffer[i]));
       buffer = [];
