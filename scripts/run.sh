@@ -20,8 +20,8 @@ if ! id -u "$USERNAME" &>/dev/null; then
   echo "[1/3] Creating system user '$USERNAME'..."
   sudo useradd -m -s /bin/bash "$USERNAME"
   sudo usermod -aG sudo "$USERNAME"
-  echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/"$USERNAME" >/dev/null
-  echo "  User created: $USERNAME (home: $USER_HOME, sudo: NOPASSWD)"
+  echo "$USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/usermod, /bin/mkdir, /bin/chown, /bin/chmod, /usr/bin/tee, /bin/rm, /bin/mv, /usr/bin/apt-get, /usr/bin/git, /usr/bin/pkill" | sudo tee /etc/sudoers.d/"$USERNAME" >/dev/null
+  echo "  User created: $USERNAME (home: $USER_HOME, sudo: restricted commands)"
 else
   echo "[1/3] System user '$USERNAME' already exists."
 fi
