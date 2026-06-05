@@ -756,7 +756,7 @@ app.post('/api/extract', (req, res) => {
 function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(fluxbox|fbpager)']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
 
   const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24', '+extension', 'GLX'], { stdio: 'pipe' });
@@ -790,15 +790,16 @@ function startVNCServer() {
     }, delay);
   }
 
-  // Start Xfce desktop session
-  spawnDesktop('xfce4-session', [], 3000);
+  // Start fluxbox window manager (lightweight, no D-Bus needed)
+  spawnDesktop('fluxbox', [], 2000);
 
-  // Start x11vnc after desktop session is up
+  // Start x11vnc after display is ready
   setTimeout(function() {
     const vnc = spawn('x11vnc', [
       '-display', ':1', '-forever', '-shared',
       '-rfbport', String(VNC_RFB_PORT), '-nopw',
       '-bg', '-o', '/tmp/x11vnc.log',
+      '-nowf', '-norc',
     ], { stdio: 'pipe' });
     vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
     vnc.on('exit', (code) => log('info', '[x11vnc] exited with code ' + code));
@@ -812,7 +813,7 @@ function stopVNCServer() {
   installState.vncProcesses = [];
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(fluxbox|fbpager)']); } catch (e) {}
 }
 
 // ─── Update Check ──────────────────────────────────────────────────────────
@@ -1078,9 +1079,12 @@ function handleVncWS(ws, url) {
 }
 
 function setupVncProxy(ws) {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   const msgBuffer = [];
 
   ws.on('message', (data) => {
+    ws.isAlive = true;
     msgBuffer.push(data);
   });
 
