@@ -756,10 +756,10 @@ app.post('/api/extract', (req, res) => {
 function startVNCServer() {
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(gnome-session|gnome-shell)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
 
-  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24'], { stdio: 'pipe' });
+  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24', '+extension', 'GLX'], { stdio: 'pipe' });
   xvfb.stderr.on('data', (d) => console.error('[xvfb]', d.toString().trim()));
   installState.vncProcesses.push(xvfb);
 
@@ -790,29 +790,21 @@ function startVNCServer() {
     }, delay);
   }
 
-  // Start GNOME desktop session
-  var gnomeEnv = {
-    ...desktopEnv,
-    XDG_SESSION_TYPE: 'x11',
-    XDG_CURRENT_DESKTOP: 'ubuntu:GNOME',
-    GNOME_SHELL_SESSION_MODE: 'ubuntu',
-    MUTTER_DEBUG_NUM_DUMMIES: 1,
-    MUTTER_DEBUG_DUMMY_MONITOR_SCALES: 1,
-    CLUTTER_BACKEND: 'x11',
-  };
-  spawnDesktop('gnome-session', ['--session=ubuntu'], 2000);
+  // Start Xfce desktop session
+  spawnDesktop('xfce4-session', [], 3000);
 
   // Start x11vnc after desktop session is up
   setTimeout(function() {
     const vnc = spawn('x11vnc', [
       '-display', ':1', '-forever', '-shared',
       '-rfbport', String(VNC_RFB_PORT), '-nopw',
+      '-bg', '-o', '/tmp/x11vnc.log',
     ], { stdio: 'pipe' });
     vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
     vnc.on('exit', (code) => log('info', '[x11vnc] exited with code ' + code));
     installState.vncProcesses.push(vnc);
     log('info', 'VNC server started on port ' + VNC_RFB_PORT);
-  }, 15000);
+  }, 8000);
 }
 
 function stopVNCServer() {
@@ -820,7 +812,7 @@ function stopVNCServer() {
   installState.vncProcesses = [];
   try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
   try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(gnome-session|gnome-shell)']); } catch (e) {}
+  try { spawnSync('pkill', ['-f', '(xfce4-session|xfwm4|xfdesktop|xfce4-panel)']); } catch (e) {}
 }
 
 // ─── Update Check ──────────────────────────────────────────────────────────
@@ -1067,12 +1059,30 @@ function handleInstallWS(ws, url) {
 // ─── VNC WebSocket Proxy ─────────────────────────────────────────
 
 function handleVncWS(ws, url) {
-  requireWsAuth(ws, () => {
-    const msgBuffer = [];
+  // noVNC sends RFB data directly, not JSON auth messages.
+  // Accept token via query param ?token=xxx for noVNC compatibility.
+  const urlToken = url.searchParams.get('token');
+  let authed = false;
+  if (urlToken) {
+    const entry = sessions.get(urlToken);
+    if (entry && Date.now() - entry.time < SESSION_TTL) {
+      entry.time = Date.now();
+      authed = true;
+    }
+  }
+  if (!authed) {
+    requireWsAuth(ws, () => { setupVncProxy(ws); });
+  } else {
+    setupVncProxy(ws);
+  }
+}
 
-    ws.on('message', (data) => {
-      msgBuffer.push(data);
-    });
+function setupVncProxy(ws) {
+  const msgBuffer = [];
+
+  ws.on('message', (data) => {
+    msgBuffer.push(data);
+  });
 
   function connectToVnc(attempt) {
     const tcp = net.connect(VNC_RFB_PORT, 'localhost', () => {
@@ -1119,7 +1129,6 @@ function handleVncWS(ws, url) {
   }
 
   connectToVnc(0);
-  });
 }
 
 // ─── Watch WebSocket ────────────────────────────────────────────
