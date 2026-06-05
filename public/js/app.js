@@ -1599,7 +1599,8 @@ function activateDesktop() {
     setTimeout(function() {
       var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       var token = getSessionToken();
-      var testUrl = protocol + '//' + location.host + '/vnc/';
+      // Pass token as query param for noVNC compatibility
+      var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token || '');
       var retries = 0;
       var maxRetries = 90;
       var retryDelay = 3000;
@@ -1608,9 +1609,6 @@ function activateDesktop() {
         appendLog('[Probing desktop connection... (' + (retries + 1) + '/' + maxRetries + ')]\n');
         var testWs = new WebSocket(testUrl);
         var done = false;
-        testWs.onopen = function() {
-          if (token) testWs.send(JSON.stringify({ type: 'auth', token: token }));
-        };
 
         function fail() {
           if (done) return;
@@ -1639,13 +1637,10 @@ function activateDesktop() {
           openBtn.click();
         }
 
-        // WebSocket upgrade alone doesn't mean VNC is ready.
-        // We wait for actual RFB protocol data from x11vnc or a timeout/closing.
-        var probeTimer = setTimeout(fail, 2000);
-        testWs.onopen = function() { /* waiting for data */ };
-        testWs.onmessage = function() { clearTimeout(probeTimer); succeed(); };
-        testWs.onerror = function() { clearTimeout(probeTimer); fail(); };
-        testWs.onclose = function() { clearTimeout(probeTimer); fail(); };
+        // Wait for RFB protocol data from VNC proxy
+        testWs.onmessage = function() { succeed(); };
+        testWs.onerror = function() { fail(); };
+        testWs.onclose = function() { fail(); };
       }
 
       probeVnc();
@@ -1660,10 +1655,12 @@ function activateDesktop() {
 }
 
 document.getElementById('desktop-open-tab').addEventListener('click', function() {
+  var token = getSessionToken();
+  var wsPath = token ? 'vnc/?token=' + encodeURIComponent(token) : 'vnc/';
   var params = new URLSearchParams({
     host: location.hostname,
     port: location.protocol === 'https:' ? 443 : 80,
-    path: 'vnc',
+    path: wsPath,
     encrypt: location.protocol === 'https:' ? 1 : 0,
     autoconnect: 1,
     reconnect: 5,
