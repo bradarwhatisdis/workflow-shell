@@ -1,150 +1,105 @@
+'use strict';
+
+/**
+ * Workflow Shell — refactored entry point.
+ *
+ * Wires together all extracted modules via dependency injection.
+ * Server lifecycle: config → services → middleware → routes → WebSocket → start
+ */
+
+// ─── Core Dependencies ──────────────────────────────────────────────────────
+
 const express = require('express');
 const http = require('http');
-const crypto = require('crypto');
-const net = require('net');
-const dns = require('dns');
-const WebSocket = require('ws');
-const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
-const chokidar = require('chokidar');
-const multer = require('multer');
-const { execFileSync, execSync, spawnSync, spawn } = require('child_process');
+const net = require('net');
+const { spawnSync } = require('child_process');
+const WebSocket = require('ws');
+const pty = require('node-pty');
 
-const REPO_ROOT = path.resolve(__dirname, '..');
-const QUICK_ACTIONS_PATH = path.join(REPO_ROOT, 'quick_actions.json');
+// ─── Config ─────────────────────────────────────────────────────────────────
 
-const VENDOR_DIR = path.join(__dirname, 'node_modules');
+const {
+  PORT,
+  WORKSPACE,
+  AUTH_ENABLED,
+  AUTH_USER,
+  AUTH_PASS,
+  SESSION_TTL,
+  PUBLIC_PATHS,
+  QUICK_ACTIONS_PATH,
+  REPO_ROOT,
+  INSTALL_SCRIPT,
+  VNC_RFB_PORT,
+  NOVNC_DIR,
+  UPDATE_POLL_INTERVAL,
+} = require('./config');
+
+// ─── Services ───────────────────────────────────────────────────────────────
+
+const { log }                 = require('./services/logger');
+const { sessions }            = require('./services/auth');
+const { generateToken }       = require('./services/auth');
+const { loginRateLimit }      = require('./services/auth');
+const { getSafePath,
+        sanitizeFilename,
+        isPrivateHostname,
+        getResolvedWorkspace } = require('./services/files');
+const { killRateLimiter,
+        quickActionsRateLimiter } = require('./services/rateLimiter');
+const { installState,
+        startVNCServer,
+        stopVNCServer }       = require('./services/vnc');
+const { watchClients,
+        fileWatcher,
+        startFileWatcher }    = require('./services/fileWatcher');
+const { updateStatus,
+        checkForUpdates }     = require('./services/updates');
+
+// ─── Middleware ──────────────────────────────────────────────────────────────
+
+const authMiddlewareFactory  = require('./middleware/auth');
+const createUploadMiddleware = require('./middleware/upload');
+const securityHeaders        = require('./middleware/security');
+const safeError              = require('./middleware/error');
+
+// ─── Express App ────────────────────────────────────────────────────────────
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = process.env.PORT || 8080;
-const WORKSPACE = process.env.WORKSPACE_DIR || path.join(process.env.HOME || '/home/runner', 'work');
+// ─── Body Parsing & Static Files ───────────────────────────────────────────
 
-// ─── Structured Logger ─────────────────────────────────────────────────
-
-const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
-const LOG_LEVEL = (process.env.LOG_LEVEL || 'info').toLowerCase();
-
-function log(level, ...args) {
-  if (LOG_LEVELS[level] < LOG_LEVELS[LOG_LEVEL]) return;
-  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const prefix = '[' + ts + '] [' + level.toUpperCase() + ']';
-  if (level === 'error') {
-    console.error(prefix, ...args);
-  } else if (level === 'warn') {
-    console.warn(prefix, ...args);
-  } else {
-    console.log(prefix, ...args);
-  }
-}
-
-// ─── Tunnel URL (set by run.sh after discovering cloudflare URL) ─────────
-
-let tunnelUrl = '';
-
-app.post('/api/tunnel-url', (req, res) => {
-  const { url } = req.body || {};
-  if (url) {
-    tunnelUrl = url;
-    log('info', 'Tunnel URL set: ' + tunnelUrl);
-    res.json({ success: true });
-  } else {
-    res.status(400).json({ error: 'Missing url' });
-  }
-});
-
-app.get('/api/tunnel-url', (req, res) => {
-  res.json({ url: tunnelUrl });
-});
-
-// ─── Graceful Shutdown ────────────────────────────────────────────────
-
-function gracefulShutdown(reason) {
-  log('info', 'Shutting down: ' + reason);
-  stopVNCServer();
-  if (fileWatcher) { try { fileWatcher.close(); } catch (e) {} }
-  clearInterval(heartbeatTimer);
-  wss.clients.forEach(ws => { try { ws.terminate(); } catch (e) {} });
-  server.close(() => {
-    log('info', 'Server closed');
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 5000);
-}
-
-// ─── Authentication (session token based) ────────────────────────────────
-
-const AUTH_USER = process.env.USERNAME || '';
-const AUTH_PASS = process.env.PASSWORD || '';
-const AUTH_ENABLED = !!(AUTH_USER && AUTH_PASS);
-const SESSION_TTL = 5 * 60 * 1000;
-const sessions = new Map();
-
-const MAX_LOGIN_ATTEMPTS = 10;
-const LOGIN_WINDOW_MS = 60 * 1000;
-const loginAttempts = new Map();
-
-function generateToken() {
-  return 'sess_' + crypto.randomBytes(24).toString('hex');
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, entry] of sessions) {
-    if (now - entry.time >= SESSION_TTL) sessions.delete(token);
-  }
-}, 5 * 60 * 1000);
-
-const PUBLIC_PATHS = ['/login.html', '/api/login', '/api/logout', '/favicon.ico'];
-function isPublicPath(p) {
-  if (PUBLIC_PATHS.includes(p)) return true;
-  if (p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/vendor/')) return true;
-  return false;
-}
-
-function authMiddleware(req, res, next) {
-  if (!AUTH_ENABLED) return next();
-  if (isPublicPath(req.path)) return next();
-
-  const token = req.headers['x-session-token'];
-  if (token) {
-    const entry = sessions.get(token);
-    if (entry) {
-      if (Date.now() - entry.time < SESSION_TTL) {
-        entry.time = Date.now();
-        return next();
-      }
-      sessions.delete(token);
-    }
-  }
-
-  res.status(401).json({ error: 'Authentication required' });
-}
+const VENDOR_DIR = path.join(__dirname, 'node_modules');
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
-app.get('/favicon.ico', (req, res) => res.status(204).end());
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('X-XSS-Protection', '0');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self';");
-  next();
-});
+// ─── Security Headers ───────────────────────────────────────────────────────
 
+app.use(securityHeaders);
+
+// ─── Session Auth Middleware ────────────────────────────────────────────────
+
+const { authMiddleware } = authMiddlewareFactory({
+  AUTH_ENABLED,
+  sessions,
+  SESSION_TTL,
+  PUBLIC_PATHS,
+});
 app.use(authMiddleware);
-// Serve xterm.js and addon from node_modules
+
+// ─── Vendor Static Files ────────────────────────────────────────────────────
+
 app.use('/vendor/xterm', express.static(path.join(VENDOR_DIR, 'xterm')));
 app.use('/vendor/xterm-addon-fit', express.static(path.join(VENDOR_DIR, 'xterm-addon-fit')));
 
-// Serve noVNC client files (auto-download if missing)
-const NOVNC_DIR = '/opt/novnc';
+// ─── noVNC (download on first run if missing) ───────────────────────────────
+
 (function ensureNovnc() {
   if (fs.existsSync(NOVNC_DIR + '/core/rfb.js')) {
     app.use('/novnc', express.static(NOVNC_DIR));
@@ -170,1000 +125,84 @@ const NOVNC_DIR = '/opt/novnc';
   }
 })();
 
-// ─── VNC / Install State ──────────────────────────────────────────
+// ─── WebSocket Setup ────────────────────────────────────────────────────────
 
-const INSTALL_SCRIPT = path.join(__dirname, '..', 'scripts', 'install-desktop.sh');
-const VNC_RFB_PORT = 5901;
-const installState = {
-  running: false,
-  done: false,
-  logs: [],
-  listeners: [],
-  vncProcesses: [],
+const wsDeps = {
+  AUTH_ENABLED,
+  sessions,
+  SESSION_TTL,
+  log,
+  net,
+  pty,
+  WORKSPACE,
+  installState,
+  startVNCServer,
+  INSTALL_SCRIPT,
+  VNC_RFB_PORT,
+  watchClients,
 };
 
-// ─── File Watcher ────────────────────────────────────────────────
+const heartbeatTimer = require('./websocket/index')(wss, wsDeps);
 
-const watchClients = new Set();
-let fileWatcher = null;
+// ─── Graceful Shutdown (after WS — needs heartbeatTimer) ────────────────────
 
-function startFileWatcher() {
-  try { if (fileWatcher) fileWatcher.close(); } catch (e) {}
-
-  if (!fs.existsSync(WORKSPACE)) {
-    log('warn', 'Workspace not found, file watcher disabled');
-    return;
-  }
-
-  let debounceTimer;
-  try {
-    fileWatcher = chokidar.watch(WORKSPACE, {
-      ignored: /(^|[/\\])\..|node_modules/,
-      persistent: true,
-      ignoreInitial: true,
-    });
-
-    const notify = () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const msg = JSON.stringify({ type: 'change' });
-        watchClients.forEach(ws => {
-          try { ws.send(msg); } catch (e) {}
-        });
-      }, 200);
-    };
-
-    fileWatcher.on('add', notify);
-    fileWatcher.on('change', notify);
-    fileWatcher.on('unlink', notify);
-    fileWatcher.on('addDir', notify);
-    fileWatcher.on('unlinkDir', notify);
-
-    log('info', 'File watcher started on ' + WORKSPACE);
-  } catch (e) {
-    log('warn', 'File watcher error:', e.message);
-  }
-}
-
-// ─── Login ────────────────────────────────────────────────────────────────────
-
-function loginRateLimit(req) {
-  const ip = req.ip || req.connection.remoteAddress;
-  const now = Date.now();
-  let entry = loginAttempts.get(ip);
-  if (!entry || now - entry.window > LOGIN_WINDOW_MS) {
-    entry = { count: 0, window: now };
-    loginAttempts.set(ip, entry);
-  }
-  entry.count++;
-  return entry.count <= MAX_LOGIN_ATTEMPTS;
-}
-
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!AUTH_ENABLED) return res.json({ token: '' });
-
-  if (!loginRateLimit(req)) {
-    return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
-  }
-
-  if (username === AUTH_USER && password === AUTH_PASS) {
-    const token = generateToken();
-    sessions.set(token, { time: Date.now() });
-    res.json({ token });
-  } else {
-    res.status(401).json({ error: 'Invalid credentials' });
-  }
-});
-
-app.post('/api/logout', (req, res) => {
-  const token = req.headers['x-session-token'];
-  if (token) sessions.delete(token);
-  res.json({ success: true });
-});
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function resolveSymlinks(p) {
-  try {
-    return fs.realpathSync(p);
-  } catch (e) {
-    const parent = path.dirname(p);
-    if (parent === p) return p;
-    try {
-      const resolvedParent = fs.realpathSync(parent);
-      return path.join(resolvedParent, path.basename(p));
-    } catch (e2) {
-      return null;
-    }
-  }
-}
-
-let RESOLVED_WORKSPACE = null;
-function getResolvedWorkspace() {
-  if (RESOLVED_WORKSPACE) return RESOLVED_WORKSPACE;
-  RESOLVED_WORKSPACE = resolveSymlinks(path.resolve(WORKSPACE));
-  return RESOLVED_WORKSPACE;
-}
-
-function getSafePath(reqPath) {
-  if (!reqPath) return path.resolve(WORKSPACE);
-  const clean = reqPath.startsWith('/') ? reqPath.slice(1) : reqPath;
-  const fullPath = path.resolve(WORKSPACE, clean || '.');
-  const resolvedWorkspace = getResolvedWorkspace();
-  if (!resolvedWorkspace) return null;
-  const resolvedPath = resolveSymlinks(fullPath);
-  if (!resolvedPath || !resolvedPath.startsWith(resolvedWorkspace)) return null;
-  return resolvedPath;
-}
-
-function sanitizeFilename(name) {
-  return path.basename(name).replace(/[/\\]/g, '_');
-}
-
-function safeError(err, res) {
-  log('error', '[ERROR]', err);
-  res.status(500).json({ error: 'Internal server error' });
-}
-
-function createRateLimiter(maxAttempts, windowMs) {
-  const attempts = new Map();
-  return (req) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
-    let entry = attempts.get(ip);
-    if (!entry || now - entry.window > windowMs) {
-      entry = { count: 0, window: now };
-      attempts.set(ip, entry);
-    }
-    entry.count++;
-    return entry.count <= maxAttempts;
-  };
-}
-
-const killRateLimiter = createRateLimiter(3, 60000);
-const quickActionsRateLimiter = createRateLimiter(30, 60000);
-
-// ─── File Manager API ──────────────────────────────────────────────────────
-
-app.get('/api/files', (req, res) => {
-  try {
-    const dir = getSafePath(req.query.path);
-    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-      return res.status(404).json({ error: 'Directory not found' });
-    }
-    const items = fs.readdirSync(dir, { withFileTypes: true });
-    const files = items.map(item => {
-      const full = path.join(dir, item.name);
-      const stat = fs.statSync(full);
-      return {
-        name: item.name,
-        isDirectory: stat.isDirectory(),
-        size: stat.isFile() ? stat.size : 0,
-        modified: stat.mtime.toISOString(),
-      };
-    });
-    files.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
-    const relPath = path.relative(WORKSPACE, dir);
-    res.json({ path: relPath === '' ? '/' : '/' + relPath, items: files });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.get('/api/file', (req, res) => {
-  try {
-    const filePath = getSafePath(req.query.path);
-    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    const content = fs.readFileSync(filePath, 'utf-8');
-    res.json({ content, name: path.basename(filePath) });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.put('/api/file', (req, res) => {
-  try {
-    const filePath = getSafePath(req.query.path);
-    if (!filePath) return res.status(400).json({ error: 'Invalid path' });
-
-    if (req.body._isDir) {
-      if (!fs.existsSync(filePath)) fs.mkdirSync(filePath, { recursive: true });
-      return res.json({ success: true });
-    }
-
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, req.body.content || '', 'utf-8');
-    res.json({ success: true });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-const uploadMiddleware = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const dir = getSafePath(req.body.path || '/') || WORKSPACE;
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => cb(null, sanitizeFilename(file.originalname)),
-  }),
-}).single('file');
-
-app.post('/api/upload', (req, res) => {
-  uploadMiddleware(req, res, (err) => {
-    if (err) return safeError(err, res);
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    res.json({ success: true, filename: req.file.filename });
+function gracefulShutdown(reason) {
+  require('./utils/gracefulShutdown')(reason, {
+    stopVNCServer,
+    fileWatcher,
+    heartbeatTimer,
+    wss,
+    server,
+    log,
   });
-});
-
-function isPrivateIP(address) {
-  const parts = address.split('.').map(Number);
-  if (parts.length !== 4) return true;
-  if (parts[0] === 10) return true;
-  if (parts[0] === 127) return true;
-  if (parts[0] === 0) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
-  if (parts[0] === 198 && parts[1] === 18) return true;
-  return false;
 }
 
-async function isPrivateHostname(hostname) {
-  try {
-    const { address } = await dns.promises.lookup(hostname, { verbatim: false });
-    return isPrivateIP(address);
-  } catch (e) {
-    return true;
-  }
-}
+// ─── Routes (dependency injection) ─────────────────────────────────────────
 
-app.post('/api/upload/url', async (req, res) => {
-  try {
-    const { url, path: targetPath } = req.body;
-    if (!url) return res.status(400).json({ error: 'Missing url' });
-    const uploadDir = getSafePath(targetPath || '/');
-    if (!uploadDir) return res.status(400).json({ error: 'Invalid path' });
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-    const urlObj = new URL(url);
-    if (urlObj.protocol !== 'https:' && urlObj.protocol !== 'http:') {
-      return res.status(400).json({ error: 'Invalid protocol' });
-    }
-
-    if (await isPrivateHostname(urlObj.hostname)) {
-      return res.status(400).json({ error: 'URL points to private or invalid network' });
-    }
-
-    const fileName = sanitizeFilename(path.basename(urlObj.pathname) || 'download');
-    const filePath = path.join(uploadDir, fileName);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!response.ok) return res.status(400).json({ error: 'Failed to fetch URL: ' + response.status });
-    const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
-    res.json({ success: true, filename: fileName });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.delete('/api/file', (req, res) => {
-  try {
-    const filePath = getSafePath(req.query.path);
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    const stat = fs.statSync(filePath);
-    if (stat.isDirectory()) {
-      fs.rmSync(filePath, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(filePath);
-    }
-    res.json({ success: true });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.get('/api/download', (req, res) => {
-  try {
-    const filePath = getSafePath(req.query.path);
-    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    res.download(filePath);
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── Health check ────────────────────────────────────────────────────────────
-
-app.get('/api/cwd', (req, res) => {
-  res.json({ cwd: WORKSPACE });
-});
-
-// ─── Quick Actions API ─────────────────────────────────────────────────────
-
-function readQuickActions() {
-  if (!fs.existsSync(QUICK_ACTIONS_PATH)) return [];
-  const raw = fs.readFileSync(QUICK_ACTIONS_PATH, 'utf-8');
-  return JSON.parse(raw);
-}
-
-function writeQuickActions(actions) {
-  fs.writeFileSync(QUICK_ACTIONS_PATH, JSON.stringify(actions, null, 2) + '\n', 'utf-8');
-}
-
-function gitCommitAndPush(message) {
-  try {
-    execFileSync('git', ['add', 'quick_actions.json'], { cwd: REPO_ROOT, stdio: 'pipe' });
-    execFileSync('git', ['commit', '-m', message], { cwd: REPO_ROOT, stdio: 'pipe' });
-    execFileSync('git', ['push'], { cwd: REPO_ROOT, stdio: 'pipe' });
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-app.get('/api/quick-actions', (req, res) => {
-  try {
-    const actions = readQuickActions();
-    res.json({ actions });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.post('/api/quick-actions', (req, res) => {
-  try {
-    const { command_name, command_description, command } = req.body;
-    if (!command_name || !command) {
-      return res.status(400).json({ error: 'command_name and command are required' });
-    }
-    const actions = readQuickActions();
-    actions.push({
-      Command_Name: command_name,
-      Command_Description: command_description || '',
-      Command: command,
-    });
-    writeQuickActions(actions);
-    const pushed = gitCommitAndPush('Add quick action: ' + command_name);
-    res.json({ success: true, actions, pushed });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.delete('/api/quick-actions', (req, res) => {
-  try {
-    const { command_name } = req.body;
-    if (!command_name) {
-      return res.status(400).json({ error: 'command_name is required' });
-    }
-    let actions = readQuickActions();
-    const filtered = actions.filter(a => a.Command_Name !== command_name);
-    if (filtered.length === actions.length) {
-      return res.status(404).json({ error: 'Quick action not found' });
-    }
-    writeQuickActions(filtered);
-    const pushed = gitCommitAndPush('Remove quick action: ' + command_name);
-    res.json({ success: true, actions: filtered, pushed });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.post('/api/quick-actions/run', (req, res) => {
-  try {
-    const { command } = req.body;
-    if (!command) {
-      return res.status(400).json({ error: 'command is required' });
-    }
-
-    log('info', '[QUICK_ACTION] Executing command:', command);
-
-    if (!quickActionsRateLimiter(req)) {
-      return res.status(429).json({ error: 'Too many requests. Please wait.' });
-    }
-
-    const result = execFileSync('/bin/bash', ['-c', command], {
-      cwd: REPO_ROOT,
-      timeout: 30000,
-      maxBuffer: 1024 * 1024,
-      encoding: 'utf-8',
-    });
-    res.json({ success: true, output: result });
-  } catch (err) {
-    const output = err.stdout || '';
-    const errorOutput = err.stderr || err.message;
-    res.json({ success: false, output, error: errorOutput, exitCode: err.status || 1 });
-  }
-});
-
-// ─── System Stats API ─────────────────────────────────────────────────────
-
-app.get('/api/system-stats', (req, res) => {
-  try {
-    const disk = execSync('df -h / | tail -1', { encoding: 'utf-8' }).trim().split(/\s+/);
-    const mem = execSync('free -h | grep Mem', { encoding: 'utf-8' }).trim().split(/\s+/);
-    const load = execSync('cat /proc/loadavg', { encoding: 'utf-8' }).trim().split(/\s+/);
-    const uptime = execSync('uptime -p', { encoding: 'utf-8' }).trim().replace('up ', '');
-    const procs = execSync('ps aux --no-headers | wc -l', { encoding: 'utf-8' }).trim();
-    res.json({
-      disk: { filesystem: disk[0], size: disk[1], used: disk[2], avail: disk[3], usePercent: disk[4], mount: disk[5] },
-      memory: { total: mem[1], used: mem[2], free: mem[3], shared: mem[4] || '-', buffCache: mem[5] || '-', avail: mem[6] || '-' },
-      load: { '1min': load[0], '5min': load[1], '15min': load[2] },
-      uptime,
-      processes: parseInt(procs, 10),
-    });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── Git Status API ─────────────────────────────────────────────────────────
-
-app.get('/api/git-status', (req, res) => {
-  try {
-    let branch = '', changes = [], log = [];
-    try { branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim(); } catch (e) { branch = '(not a git repo)'; }
-    try {
-      const raw = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
-      if (raw) changes = raw.split('\n').map(l => ({ status: l.slice(0,2), file: l.slice(3) }));
-    } catch (e) {}
-    try {
-      const raw = execSync('git log --oneline -10', { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
-      if (raw) log = raw.split('\n').map(l => { const s = l.indexOf(' '); return { hash: l.slice(0, s), message: l.slice(s + 1) }; });
-    } catch (e) {}
-    res.json({ branch, changes, log });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── File Tree API ──────────────────────────────────────────────────────────
-
-app.get('/api/files/tree', (req, res) => {
-  try {
-    const dir = getSafePath(req.query.path);
-    if (!dir) return res.status(400).json({ error: 'Invalid path' });
-    function buildTree(dirPath, depth) {
-      if (depth > 3) return [];
-      try {
-        const items = fs.readdirSync(dirPath, { withFileTypes: true });
-        return items
-          .filter(item => !item.name.startsWith('.'))
-          .map(item => {
-            const full = path.join(dirPath, item.name);
-            const stat = fs.statSync(full);
-            const entry = { name: item.name, isDirectory: stat.isDirectory() };
-            if (entry.isDirectory) entry.children = buildTree(full, depth + 1);
-            return entry;
-          });
-      } catch (e) { return []; }
-    }
-    const tree = buildTree(dir, 0);
-    const relPath = path.relative(WORKSPACE, dir);
-    res.json({ path: relPath === '' ? '/' : '/' + relPath, tree });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── Search in Files API ─────────────────────────────────────────────────────
-
-app.get('/api/search', (req, res) => {
-  try {
-    const q = req.query.q;
-    if (!q || q.length < 2) return res.json({ results: [] });
-    const output = execFileSync('grep', ['-rn', '--binary-files=without-match', q, '.'], {
-      cwd: WORKSPACE, encoding: 'utf-8', maxBuffer: 1024 * 512, timeout: 10000,
-    }).trim();
-    if (!output) return res.json({ results: [] });
-    const results = output.split('\n').filter(Boolean).map(line => {
-      const first = line.indexOf(':');
-      const second = line.indexOf(':', first + 1);
-      if (first === -1 || second === -1) return null;
-      return { file: line.slice(0, first), line: parseInt(line.slice(first + 1, second), 10), match: line.slice(second + 1).trim() };
-    }).filter(Boolean);
-    res.json({ results });
-  } catch (err) {
-    if (err.status === 1) return res.json({ results: [] });
-    safeError(err, res);
-  }
-});
-
-// ─── File Move API ───────────────────────────────────────────────────────────
-
-app.post('/api/file/move', (req, res) => {
-  try {
-    const { from, to } = req.body || {};
-    if (!from || !to) return res.status(400).json({ error: 'from and to paths required' });
-    const src = getSafePath(from);
-    const dst = getSafePath(to);
-    if (!src || !dst) return res.status(400).json({ error: 'Invalid paths' });
-    if (!fs.existsSync(src)) return res.status(404).json({ error: 'Source not found' });
-    fs.mkdirSync(path.dirname(dst), { recursive: true });
-    fs.renameSync(src, dst);
-    res.json({ success: true });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── Archive API ──────────────────────────────────────────────────────────────
-
-app.post('/api/archive', (req, res) => {
-  try {
-    const { paths, name } = req.body || {};
-    if (!paths || !paths.length) return res.status(400).json({ error: 'paths array required' });
-    const archiveName = (name || 'archive') + '.zip';
-    const archivePath = path.join(WORKSPACE, archiveName);
-    const safePaths = paths.map(p => getSafePath(p)).filter(Boolean);
-    const relPaths = safePaths.map(p => path.relative(WORKSPACE, p));
-    execFileSync('zip', ['-r', archiveName, ...relPaths], { cwd: WORKSPACE, stdio: 'pipe', timeout: 30000 });
-    res.json({ success: true, file: archiveName });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-app.post('/api/extract', (req, res) => {
-  try {
-    const { path: archiveRel } = req.body || {};
-    if (!archiveRel) return res.status(400).json({ error: 'path required' });
-    const archivePath = getSafePath(archiveRel);
-    if (!archivePath || !fs.existsSync(archivePath)) return res.status(404).json({ error: 'Archive not found' });
-    const dest = path.dirname(archivePath);
-
-    // List entries and validate paths before extracting (Zip Slip prevention)
-    const listing = execFileSync('unzip', ['-Z1', path.basename(archivePath)], { cwd: dest, encoding: 'utf-8', timeout: 10000 }).trim();
-    if (listing) {
-      const entries = listing.split('\n').filter(Boolean);
-      for (const entry of entries) {
-        const resolved = path.resolve(dest, entry);
-        if (!resolved.startsWith(path.resolve(dest))) {
-          return res.status(400).json({ error: 'Archive contains invalid path entries' });
-        }
-      }
-    }
-
-    execFileSync('unzip', ['-o', path.basename(archivePath)], { cwd: dest, stdio: 'pipe', timeout: 30000 });
-    res.json({ success: true });
-  } catch (err) {
-    safeError(err, res);
-  }
-});
-
-// ─── Kill API ──────────────────────────────────────────────────────────────
-
-function startVNCServer() {
-  try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(fluxbox|fbpager)']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', 'dbus-daemon.*:1']); } catch (e) {}
-
-  const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24', '+extension', 'GLX'], { stdio: 'pipe' });
-  xvfb.stderr.on('data', (d) => console.error('[xvfb]', d.toString().trim()));
-  installState.vncProcesses.push(xvfb);
-
-  const dbusEnv = {};
-  try {
-    const dbusLaunch = spawnSync('dbus-launch');
-    dbusLaunch.stdout.toString().split('\n').forEach(function(line) {
-      var idx = line.indexOf('=');
-      if (idx > 0) dbusEnv[line.substring(0, idx)] = line.substring(idx + 1);
-    });
-    log('info', '[dbus] session bus started: ' + (dbusEnv.DBUS_SESSION_BUS_ADDRESS || '(none)'));
-  } catch (e) {
-    log('error', '[dbus] failed to start: ' + e.message);
-  }
-
-  var desktopEnv = { ...process.env, DISPLAY: ':1', ...dbusEnv };
-  var osHome = require('os').userInfo().homedir;
-  log('info', '[desktop] process.env.HOME=' + process.env.HOME + ', os.userInfo().homedir=' + osHome + ', uid=' + process.getuid());
-  desktopEnv.HOME = osHome;
-
-  function spawnDesktop(name, args, delay) {
-    setTimeout(function() {
-      var proc = spawn(name, args, { stdio: 'pipe', env: desktopEnv });
-      proc.stderr.on('data', function(d) { console.error('[' + name + ']', d.toString().trim()); });
-      proc.on('exit', function(code) { log('info', '[' + name + '] exited with code ' + code); });
-      installState.vncProcesses.push(proc);
-      log('info', '[' + name + '] started');
-    }, delay);
-  }
-
-  // Start fluxbox window manager (lightweight, no D-Bus needed)
-  spawnDesktop('fluxbox', [], 2000);
-
-  // Start x11vnc after display is ready
-  setTimeout(function() {
-    const vnc = spawn('x11vnc', [
-      '-display', ':1', '-forever', '-shared',
-      '-rfbport', String(VNC_RFB_PORT), '-nopw',
-      '-bg', '-o', '/tmp/x11vnc.log',
-      '-nowf', '-norc',
-    ], { stdio: 'pipe' });
-    vnc.stderr.on('data', (d) => console.error('[x11vnc]', d.toString().trim()));
-    vnc.on('exit', (code) => log('info', '[x11vnc] exited with code ' + code));
-    installState.vncProcesses.push(vnc);
-    log('info', 'VNC server started on port ' + VNC_RFB_PORT);
-  }, 8000);
-}
-
-function stopVNCServer() {
-  installState.vncProcesses.forEach(p => { try { p.kill(); } catch (e) {} });
-  installState.vncProcesses = [];
-  try { spawnSync('pkill', ['-f', 'Xvfb.*:1']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', 'x11vnc.*5901']); } catch (e) {}
-  try { spawnSync('pkill', ['-f', '(fluxbox|fbpager)']); } catch (e) {}
-}
-
-// ─── Update Check ──────────────────────────────────────────────────────────
-
-const UPDATE_POLL_INTERVAL = 10000;
-const REPO_DIR = path.resolve(__dirname, '..');
-let updateStatus = {
-  currentCommit: '',
-  pending: [],
-  count: 0,
-  lastChecked: null,
+const routeDeps = {
+  // Auth
+  sessions,
+  generateToken,
+  loginRateLimit,
+  AUTH_ENABLED,
+  AUTH_USER,
+  AUTH_PASS,
+  // Files
+  getSafePath,
+  sanitizeFilename,
+  isPrivateHostname,
+  getResolvedWorkspace,
+  // Middleware
+  safeError,
+  uploadMiddleware: createUploadMiddleware,
+  // Rate limiting
+  killRateLimiter,
+  quickActionsRateLimiter,
+  // Config
+  QUICK_ACTIONS_PATH,
+  REPO_ROOT,
+  WORKSPACE,
+  // Shared state
+  updateStatus,
+  gracefulShutdown,
+  // Logging
+  log,
 };
 
-function runGit(args) {
-  try { return execSync('git ' + args, { cwd: REPO_DIR, timeout: 15000, encoding: 'utf8' }).trim(); }
-  catch (e) { return ''; }
-}
-
-function checkForUpdates() {
-  var current = runGit('rev-parse HEAD');
-  if (!current) return;
-  updateStatus.currentCommit = current.substring(0, 7);
-
-  runGit('fetch origin --quiet');
-
-  var branch = runGit('rev-parse --abbrev-ref HEAD');
-  var remoteBranch = 'origin/' + branch;
-  var newHashes = runGit('rev-list HEAD..' + remoteBranch + ' --reverse');
-  if (!newHashes) {
-    updateStatus.pending = [];
-    updateStatus.count = 0;
-    updateStatus.lastChecked = new Date().toISOString();
-    return;
-  }
-
-  updateStatus.pending = newHashes.split('\n').filter(Boolean).map(function(hash) {
-    return {
-      hash: hash.substring(0, 7),
-      message: runGit('log --format=%s -1 ' + hash),
-      files: (runGit('show --name-only --format="" ' + hash) || '').split('\n').filter(Boolean),
-    };
-  });
-  updateStatus.count = updateStatus.pending.length;
-  updateStatus.lastChecked = new Date().toISOString();
-}
-
-app.get('/api/update-status', function(req, res) { res.json(updateStatus); });
-
-app.post('/api/update', function(req, res) {
-  res.json({ success: true, message: 'Pulling latest code and restarting server...' });
-  log('info', 'Update requested - pulling and restarting...');
-  fs.writeFileSync('/tmp/workflow-restart-flag', '');
-  setImmediate(function() { gracefulShutdown('update'); });
-});
-
-app.post('/api/kill', (req, res) => {
-  if (!killRateLimiter(req)) {
-    return res.status(429).json({ error: 'Too many requests. Please wait.' });
-  }
-  res.json({ success: true, message: 'Shutting down workflow shell...' });
-  log('info', 'Kill requested - shutting down...');
-  setImmediate(() => gracefulShutdown('kill'));
-});
-
-// ─── WebSocket Router ────────────────────────────────────────────────────
-
-function wsOriginCheck(ws, req) {
-  const origin = req.headers.origin;
-  if (!origin || !AUTH_ENABLED) return true;
-  try {
-    const originHost = new URL(origin).host;
-    const serverHost = req.headers.host;
-    if (originHost === serverHost || originHost.endsWith('.trycloudflare.com')) return true;
-  } catch (e) {}
-  ws.close(4001, 'Origin not allowed');
-  return false;
-}
-
-function requireWsAuth(ws, callback) {
-  if (!AUTH_ENABLED) {
-    callback();
-    return;
-  }
-
-  const timeout = setTimeout(() => {
-    ws.removeAllListeners('message');
-    ws.close(4001, 'Authentication timeout');
-  }, 5000);
-
-  ws.once('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.type === 'auth' && msg.token) {
-        const entry = sessions.get(msg.token);
-        if (entry && Date.now() - entry.time < SESSION_TTL) {
-          entry.time = Date.now();
-          clearTimeout(timeout);
-          callback();
-          return;
-        }
-      }
-    } catch (e) {}
-    clearTimeout(timeout);
-    ws.close(4001, 'Authentication required');
-  });
-}
-
-const WS_HEARTBEAT_INTERVAL = 30000;
-
-wss.on('connection', (ws, req) => {
-  const url = new URL(req.url, 'http://localhost');
-  const pathname = url.pathname.replace(/\/+$/, '') || '/';
-
-  if (!wsOriginCheck(ws, req)) return;
-
-  if (pathname === '/install') return handleInstallWS(ws, url);
-  if (pathname === '/vnc') return handleVncWS(ws, url);
-  if (pathname === '/watch') return handleWatchWS(ws, url);
-
-  handleTerminalWS(ws, url);
-});
-
-// ─── Terminal WebSocket ──────────────────────────────────────────
-
-function handleTerminalWS(ws, url) {
-  const params = url.searchParams;
-  const ptyCols = parseInt(params.get('cols'), 10) || 80;
-  const ptyRows = parseInt(params.get('rows'), 10) || 30;
-
-  requireWsAuth(ws, () => {
-    const ptyProcess = pty.spawn('/bin/bash', [], {
-      name: 'xterm-256color',
-      cols: ptyCols,
-      rows: ptyRows,
-      cwd: WORKSPACE,
-      env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' },
-    });
-
-    ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
-
-    ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === 'input') ptyProcess.write(msg.data);
-        else if (msg.type === 'resize') ptyProcess.resize(msg.cols, msg.rows);
-      } catch (e) {
-        log('warn', 'WS message error:', e.message);
-      }
-    });
-
-    ptyProcess.onData((data) => {
-      try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) {
-        log('warn', 'WS send error:', e.message);
-      }
-    });
-
-    ptyProcess.onExit(() => {
-      try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) {
-        log('warn', 'WS send error:', e.message);
-      }
-      try { ws.close(); } catch (e) {}
-    });
-
-    ws.on('close', () => {
-      try { ptyProcess.kill(); } catch (e) {}
-    });
-  });
-}
-
-// ─── Install WebSocket ───────────────────────────────────────────
-
-function handleInstallWS(ws, url) {
-  requireWsAuth(ws, () => {
-    const send = (text) => {
-      try { ws.send(JSON.stringify({ type: 'log', data: text })); } catch (e) {}
-    };
-
-    const broadcast = (text) => {
-      installState.logs.push(text);
-      installState.listeners.forEach(fn => fn(text));
-    };
-
-    const listener = (text) => send(text);
-    installState.listeners.push(listener);
-
-    for (const line of installState.logs) send(line);
-
-    if (installState.done) {
-      send('[DONE]\n');
-      ws.close();
-      installState.listeners = installState.listeners.filter(l => l !== listener);
-      return;
-    }
-
-    if (installState.running) {
-      send('[STATUS] Installation already in progress...\n');
-      ws.on('close', () => {
-        installState.listeners = installState.listeners.filter(l => l !== listener);
-      });
-      return;
-    }
-
-    installState.running = true;
-    send('[STATUS] Starting installation...\n');
-
-    const proc = spawn('bash', [INSTALL_SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-  const onData = (data) => {
-    const text = data.toString();
-    send(text);
-    broadcast(text);
-  };
-
-  proc.stdout.on('data', onData);
-  proc.stderr.on('data', onData);
-
-  proc.on('exit', (code) => {
-    installState.running = false;
-    installState.done = true;
-
-    if (code === 0) {
-      const msg = '\n[STATUS] Installation complete! Starting desktop...\n';
-      send(msg);
-      broadcast(msg);
-      startVNCServer();
-      send('[VNC_READY]\n');
-    } else {
-      const msg = '\n[STATUS] Installation failed (exit code ' + code + ')\n';
-      send(msg);
-      broadcast(msg);
-    }
-
-    ws.close();
-    installState.listeners = installState.listeners.filter(l => l !== listener);
-  });
-
-  ws.on('close', () => {
-    installState.listeners = installState.listeners.filter(l => l !== listener);
-  });
-  });
-}
-
-// ─── VNC WebSocket Proxy ─────────────────────────────────────────
-
-function handleVncWS(ws, url) {
-  // noVNC sends RFB data directly, not JSON auth messages.
-  // Accept token via query param ?token=xxx for noVNC compatibility.
-  const urlToken = url.searchParams.get('token');
-  let authed = false;
-  if (urlToken) {
-    const entry = sessions.get(urlToken);
-    if (entry && Date.now() - entry.time < SESSION_TTL) {
-      entry.time = Date.now();
-      authed = true;
-    }
-  }
-  if (!authed) {
-    requireWsAuth(ws, () => { setupVncProxy(ws); });
-  } else {
-    setupVncProxy(ws);
-  }
-}
-
-function setupVncProxy(ws) {
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
-  const msgBuffer = [];
-
-  ws.on('message', (data) => {
-    ws.isAlive = true;
-    msgBuffer.push(data);
-  });
-
-  function connectToVnc(attempt) {
-    const tcp = net.connect(VNC_RFB_PORT, 'localhost', () => {
-      ws.removeAllListeners('message');
-
-      ws.on('message', (data) => {
-        try { tcp.write(Buffer.from(data)); } catch (e) {}
-      });
-
-      for (const buffered of msgBuffer) {
-        try { tcp.write(Buffer.from(buffered)); } catch (e) {}
-      }
-      msgBuffer.length = 0;
-
-      tcp.on('data', (data) => {
-        try { ws.send(data); } catch (e) {}
-      });
-
-      tcp.on('end', () => {
-        try { ws.close(); } catch (e) {}
-      });
-
-      tcp.on('error', () => {
-        try { ws.close(); } catch (e) {}
-      });
-
-      ws.on('close', () => {
-        try { tcp.end(); } catch (e) {}
-      });
-
-      ws.on('error', () => {
-        try { tcp.end(); } catch (e) {}
-      });
-    });
-
-    tcp.on('error', () => {
-      if (attempt < 60) {
-        const delay = Math.min(500 * Math.pow(1.5, attempt), 4000);
-        setTimeout(() => connectToVnc(attempt + 1), delay);
-      } else {
-        try { ws.close(); } catch (e) {}
-      }
-    });
-  }
-
-  connectToVnc(0);
-}
-
-// ─── Watch WebSocket ────────────────────────────────────────────
-
-function handleWatchWS(ws, url) {
-  requireWsAuth(ws, () => {
-    watchClients.add(ws);
-    ws.on('close', () => watchClients.delete(ws));
-    ws.on('error', () => watchClients.delete(ws));
-  });
-}
-
-const heartbeatTimer = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      try { ws.terminate(); } catch (e) {}
-      return;
-    }
-    ws.isAlive = false;
-    try { ws.ping(); } catch (e) {}
-  });
-}, WS_HEARTBEAT_INTERVAL);
-
-wss.on('close', () => {
-  clearInterval(heartbeatTimer);
-});
+require('./routes/tunnel')(app, { log });
+require('./routes/auth')(app, routeDeps);
+require('./routes/files')(app, routeDeps);
+require('./routes/quickActions')(app, routeDeps);
+require('./routes/system')(app, { ...routeDeps, child_process: require('child_process') });
+require('./routes/control')(app, routeDeps);
 
 // ─── Start ─────────────────────────────────────────────────────────────────
+// ─── Update Checker ─────────────────────────────────────────────────────────
 
 setTimeout(checkForUpdates, 3000);
 setInterval(checkForUpdates, UPDATE_POLL_INTERVAL);
+
+// ─── Listen ────────────────────────────────────────────────────────────────
 
 server.listen(PORT, '0.0.0.0', () => {
   log('info', 'workflow-shell running on port ' + PORT);
