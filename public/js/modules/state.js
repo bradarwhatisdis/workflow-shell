@@ -31,7 +31,10 @@ function initDom() {
     'newfile-modal', 'rename-modal', 'confirm-modal', 'help-modal',
     'toast-container', 'file-toolbar',
   ];
-  ids.forEach(id => { dom[id] = document.getElementById(id); });
+  ids.forEach(id => {
+    const key = id.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    dom[key] = document.getElementById(id);
+  });
 }
 
 export { state, dom, initDom };
