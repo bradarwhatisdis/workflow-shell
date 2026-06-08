@@ -1,20 +1,22 @@
-(function() {
-  var resizer = document.getElementById('resizer');
-  var filePane = document.getElementById('file-pane');
-  var mainContainer = document.querySelector('.bento-grid');
+// ─── Pane Resizer ─────────────────────────────────────
+
+export function initPaneResizer() {
+  const resizer = document.getElementById('resizer');
+  const filePane = document.getElementById('file-pane');
+  const mainContainer = document.querySelector('.bento-grid');
 
   if (!resizer || !filePane || !mainContainer) return;
 
-  var isResizing = false;
-  var startX = 0;
-  var startWidth = 0;
-  var isMobile = window.innerWidth <= 768;
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+  let isMobile = window.innerWidth <= 768;
 
   function initPaneWidth() {
     if (isMobile) return;
-    var saved = localStorage.getItem('wfs-pane-width');
+    const saved = localStorage.getItem('wfs-pane-width');
     if (saved) {
-      var w = parseInt(saved, 10);
+      const w = parseInt(saved, 10);
       if (w >= 200 && w <= 600) {
         filePane.style.width = w + 'px';
         filePane.style.minWidth = w + 'px';
@@ -38,11 +40,11 @@
 
   function onMove(e) {
     if (!isResizing) return;
-    var clientX = e.clientX || (e.touches && e.touches[0].clientX);
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
     if (!clientX) return;
-    var dx = clientX - startX;
-    var maxWidth = mainContainer.offsetWidth - 250;
-    var newWidth = Math.max(180, Math.min(startWidth + dx, maxWidth));
+    const dx = clientX - startX;
+    const maxWidth = mainContainer.offsetWidth - 250;
+    const newWidth = Math.max(180, Math.min(startWidth + dx, maxWidth));
     filePane.style.width = newWidth + 'px';
     filePane.style.minWidth = newWidth + 'px';
     filePane.style.flex = 'none';
@@ -68,17 +70,17 @@
   document.addEventListener('touchmove', onMove, { passive: false });
   document.addEventListener('touchend', onEnd);
 
-  var resizeTimer;
-  window.addEventListener('resize', function() {
+  let resizeTimer;
+  window.addEventListener('resize', function () {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function() {
+    resizeTimer = setTimeout(function () {
       isMobile = window.innerWidth <= 768;
       if (isMobile) {
         filePane.style.width = '';
         filePane.style.minWidth = '';
         filePane.style.flex = '';
       } else {
-        var saved = localStorage.getItem('wfs-pane-width');
+        const saved = localStorage.getItem('wfs-pane-width');
         if (saved) {
           filePane.style.width = saved + 'px';
           filePane.style.minWidth = saved + 'px';
@@ -87,14 +89,16 @@
       }
     }, 200);
   });
-})();
+}
 
-document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
-  overlay.addEventListener('mousedown', function(e) {
-    if (e.target === overlay) {
-      overlay.classList.remove('active');
-    }
+// ─── Modal Overlay Click-to-Close ─────────────────────
+
+export function initModalOverlayClose() {
+  document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+    overlay.addEventListener('mousedown', function (e) {
+      if (e.target === overlay) {
+        overlay.classList.remove('active');
+      }
+    });
   });
-});
-
-console.log('Workflow Shell loaded');
+}
