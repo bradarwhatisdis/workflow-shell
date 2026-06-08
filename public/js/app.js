@@ -1,1539 +1,81 @@
-var state = {
-  currentPath: '/',
-  items: [],
-  sortBy: 'name',
-  sortAsc: true,
-  filterText: '',
-  editorInstance: null,
-  editingOriginalContent: '',
-  selectedFile: null,
-  contextTarget: null,
-  renameTarget: null,
-  isListView: true,
-  focusedIndex: -1,
-};
+/**
+ * Workflow Shell — refactored ES module entry point.
+ *
+ * Imports and initialises all frontend modules.
+ * Keyboard shortcuts, pane-switching, and shared coordination live here.
+ */
 
-var dom = {};
+import { state, dom, initDom } from './modules/state.js';
+import { api, getSessionToken } from './modules/api.js';
+import { escapeHtml, joinPath } from './modules/utils.js';
+import { toast } from './modules/toast.js';
+
+import { initTerminal, sendToTerminal, termThemePresets } from './terminal.js';
+import { initPaneResizer, initModalOverlayClose } from './utils.js';
+import { applyTerminalTheme, initThemeToggle } from './modules/theme.js';
+import { initSessionTimer } from './modules/sessionTimer.js';
+import { initTunnelUrl } from './modules/tunnelUrl.js';
+import { initLogout } from './modules/logout.js';
+import { initUpdateChecker } from './modules/updateChecker.js';
+import { initWelcomeOverlay, initPreviewEvents } from './modules/welcomePreview.js';
+import { initKillButton } from './modules/kill.js';
+import { initDragDropMove } from './modules/dragDrop.js';
+import { initHotReload } from './modules/hotReload.js';
+import { initKeyboardShortcuts } from './modules/keyboard.js';
+import { initContextMenuEvents } from './modules/contextMenu.js';
+import { initPaletteEvents } from './modules/commandPalette.js';
+import { loadDir, toggleSearch, hideSearch, showNewFile, startRename, showDeleteConfirm } from './modules/fileManager.js';
+import { initSearchSortEvents, initFileListEvents, initFileListNavigation, initViewToggle } from './modules/fileManager.js';
+import { openEditor, closeEditor, initEditorEvents } from './modules/editor.js';
+import { loadFileTree, switchFileTab, initFileTabEvents } from './modules/fileTree.js';
+import { initUploadEvents } from './modules/upload.js';
+import { loadQuickActions, renderQuickActions, closeRunner, initQuickActionEvents } from './modules/quickActions.js';
+import { loadStats, initStatsEvents } from './modules/stats.js';
+import { loadGitStatus, initGitEvents } from './modules/git.js';
+import { doFileSearch, initSearchEvents } from './modules/search.js';
+import { activateDesktop, initDesktopEvents } from './modules/desktop.js';
+
+// ─── DOM Setup ──────────────────────────────────────────────────────────────
+
 initDom();
 
-function initDom() {
-  dom.fileList = document.getElementById('file-list');
-  dom.breadcrumb = document.getElementById('breadcrumb');
-  dom.cwdDisplay = document.getElementById('cwd-display');
-  dom.fileCountBadge = document.getElementById('file-count-badge');
-  dom.fileListStatus = document.getElementById('file-list-status');
-  dom.fileSkeleton = document.getElementById('file-skeleton');
-  dom.searchInput = document.getElementById('search-input');
-  dom.searchBox = document.getElementById('search-box');
-  dom.searchToggle = document.getElementById('search-toggle');
-  dom.searchClear = document.getElementById('search-clear');
-  dom.sortBar = document.getElementById('sort-bar');
-  dom.sortBtn = document.getElementById('sort-btn');
-  dom.viewToggle = document.getElementById('view-toggle');
-  dom.contextMenu = document.getElementById('context-menu');
-  dom.fullPageDropzone = document.getElementById('full-page-dropzone');
-  dom.uploadModal = document.getElementById('upload-modal');
-  dom.editorModal = document.getElementById('editor-modal');
-  dom.newfileModal = document.getElementById('newfile-modal');
-  dom.renameModal = document.getElementById('rename-modal');
-  dom.confirmModal = document.getElementById('confirm-modal');
-  dom.helpModal = document.getElementById('help-modal');
-  dom.toastContainer = document.getElementById('toast-container');
-  dom.fileToolbar = document.getElementById('file-toolbar');
+// ─── Process Running Indicator (terminal activity) ─────────────────────────
+
+const processIndicator = document.getElementById('process-indicator');
+let terminalActivityTimer;
+
+function showProcessIndicator() {
+  if (processIndicator) processIndicator.style.display = 'inline-flex';
+  clearTimeout(terminalActivityTimer);
+  terminalActivityTimer = setTimeout(function() {
+    if (processIndicator) processIndicator.style.display = 'none';
+  }, 5000);
 }
 
-function escapeHtml(str) {
-  var div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+// ─── Terminal ───────────────────────────────────────────────────────────────
 
-function joinPath(base, name) {
-  if (base === '/') return '/' + name;
-  return base + '/' + name;
-}
+initTerminal({ onActivity: showProcessIndicator });
+initPaneResizer();
+initModalOverlayClose();
 
-function dirname(p) {
-  if (!p || p === '/') return '/';
-  p = p.replace(/\/+$/, '');
-  var i = p.lastIndexOf('/');
-  if (i === -1) return '.';
-  if (i === 0) return '/';
-  return p.substring(0, i);
-}
-
-function basename(p) {
-  if (!p || p === '/') return '';
-  p = p.replace(/\/+$/, '');
-  var i = p.lastIndexOf('/');
-  return i === -1 ? p : p.substring(i + 1);
-}
-
-function getExtension(name) {
-  var i = name.lastIndexOf('.');
-  return i > 0 ? name.substring(i + 1).toLowerCase() : '';
-}
-
-function getFileIcon(name, isDir) {
-  if (isDir) return 'fa-folder';
-  var ext = getExtension(name);
-  var map = {
-    sh: 'fa-file-lines sh', py: 'fa-file-code py', js: 'fa-file-code js',
-    ts: 'fa-file-code ts', jsx: 'fa-file-code js', tsx: 'fa-file-code ts',
-    css: 'fa-file-code css', scss: 'fa-file-code css', less: 'fa-file-code css',
-    html: 'fa-file-code html', htm: 'fa-file-code html',
-    json: 'fa-file-code json', yml: 'fa-file-code yml', yaml: 'fa-file-code yaml',
-    xml: 'fa-file-code', svg: 'fa-file-code html',
-    md: 'fa-file-lines md', mdx: 'fa-file-lines md',
-    txt: 'fa-file-lines txt', log: 'fa-file-lines log',
-    png: 'fa-file-image image', jpg: 'fa-file-image image', jpeg: 'fa-file-image image',
-    gif: 'fa-file-image image', webp: 'fa-file-image image', ico: 'fa-file-image image',
-    pdf: 'fa-file-pdf', zip: 'fa-file-zipper', tar: 'fa-file-zipper',
-    gz: 'fa-file-zipper', rar: 'fa-file-zipper', '7z': 'fa-file-zipper',
-    exe: 'fa-gear', deb: 'fa-gear', rpm: 'fa-gear',
-    conf: 'fa-file-lines', cfg: 'fa-file-lines', ini: 'fa-file-lines',
-    env: 'fa-file-lines', gitignore: 'fa-file-lines',
-  };
-  return map[ext] || 'fa-file';
-}
-
-function formatSize(bytes) {
-  if (bytes === 0) return '0 B';
-  var k = 1024;
-  var units = ['B', 'KB', 'MB', 'GB'];
-  var i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i];
-}
-
-function formatDate(iso) {
-  if (!iso) return '';
-  var d = new Date(iso);
-  var now = new Date();
-  var diff = now - d;
-  if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function toast(message, icon, color) {
-  icon = icon || 'fa-circle-info';
-  color = color || 'var(--text-primary)';
-  var el = document.createElement('div');
-  el.className = 'toast';
-  el.innerHTML = '<i class="fas ' + icon + '" style="color:' + color + '"></i> <span>' + escapeHtml(message) + '</span>';
-  dom.toastContainer.appendChild(el);
-
-  var dismiss = function() {
-    if (el.classList.contains('removing')) return;
-    el.classList.add('removing');
-    el.addEventListener('animationend', function() { el.remove(); });
-  };
-
-  el.addEventListener('click', dismiss);
-
-  setTimeout(dismiss, 10000);
-}
-
-function getSessionToken() {
-  // Check URL param first (handles first-time redirect from login)
-  var urlParams = new URLSearchParams(window.location.search);
-  var urlToken = urlParams.get('token');
-  if (urlToken) {
-    localStorage.setItem('wfs-session-token', urlToken);
-    // Clean URL without full page reload
-    var cleanUrl = window.location.pathname + window.location.hash;
-    window.history.replaceState({}, document.title, cleanUrl);
-    return urlToken;
-  }
-  return localStorage.getItem('wfs-session-token') || '';
-}
-
-async function api(url, options) {
-  options = options || {};
-  var headers = options.headers || {};
-  headers['Content-Type'] = 'application/json';
-  headers['X-Pinggy-No-Screen'] = '1';
-  var token = getSessionToken();
-  if (token) headers['x-session-token'] = token;
-  options.headers = headers;
-
-  var res = await fetch(url, options);
-  if (res.status === 401) {
-    localStorage.removeItem('wfs-session-token');
-    window.location.href = '/login.html';
-    throw new Error('Authentication required');
-  }
-  if (!res.ok) {
-    var err = await res.json().catch(function() { return { error: res.statusText }; });
-    throw new Error(err.error || res.statusText);
-  }
-  return res.json();
-}
-
-function showSkeleton() {
-  dom.fileList.innerHTML = '';
-  if (dom.fileSkeleton) dom.fileSkeleton.style.display = 'flex';
-}
-
-function hideSkeleton() {
-  if (dom.fileSkeleton) dom.fileSkeleton.style.display = 'none';
-}
-
-async function loadDir(dirPath) {
-  state.currentPath = dirPath;
-  showSkeleton();
-  try {
-    var data = await api('/api/files?path=' + encodeURIComponent(dirPath));
-    state.items = data.items || [];
-    applyFilterAndSort();
-    updateBreadcrumb(data.path);
-    if (dom.cwdDisplay) dom.cwdDisplay.innerHTML = '<i class="fas fa-folder"></i> ' + escapeHtml(data.path);
-  } catch (err) {
-    dom.fileList.innerHTML = '';
-    dom.fileListStatus.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-  } finally {
-    hideSkeleton();
-  }
-}
-
-function applyFilterAndSort() {
-  var items = state.items;
-  if (state.filterText) {
-    var lower = state.filterText.toLowerCase();
-    items = items.filter(function(item) { return item.name.toLowerCase().includes(lower); });
-  }
-  items.sort(function(a, b) {
-    if (a.isDirectory && !b.isDirectory) return -1;
-    if (!a.isDirectory && b.isDirectory) return 1;
-    var cmp = 0;
-    if (state.sortBy === 'name') cmp = a.name.localeCompare(b.name);
-    else if (state.sortBy === 'size') cmp = (a.size || 0) - (b.size || 0);
-    else if (state.sortBy === 'date') cmp = (a.modified || '').localeCompare(b.modified || '');
-    return state.sortAsc ? cmp : -cmp;
-  });
-  renderFileList(items);
-  updateFileCount(items.length);
-}
-
-function renderFileList(items) {
-  dom.fileList.innerHTML = '';
-  dom.fileListStatus.innerHTML = '';
-
-  if (state.currentPath !== '/') {
-    var parentLi = document.createElement('li');
-    parentLi.className = 'file-item parent-item';
-    parentLi.dataset.name = '..';
-    parentLi.dataset.isDir = 'true';
-    parentLi.dataset.path = dirname(state.currentPath);
-    parentLi.innerHTML =
-      '<i class="fas fa-arrow-up icon" style="color:var(--accent)"></i>' +
-      '<span class="name" style="color:var(--accent)">..</span>' +
-      '<span class="meta">UP</span>';
-    dom.fileList.appendChild(parentLi);
-  }
-
-  if (items.length === 0) {
-    var emptyMsg = state.filterText ? 'No files match "' + state.filterText + '"' : 'Empty directory';
-    dom.fileListStatus.innerHTML =
-      '<div class="empty-state"><i class="fas fa-' + (state.filterText ? 'search' : 'folder-open') + '"></i><p>' + emptyMsg + '</p></div>';
-    return;
-  }
-
-  items.forEach(function(item, idx) {
-    var li = document.createElement('li');
-    li.className = 'file-item';
-    li.style.animationDelay = (idx * 0.03) + 's';
-    li.dataset.name = item.name;
-    li.dataset.isDir = item.isDirectory ? 'true' : 'false';
-    li.dataset.path = joinPath(state.currentPath, item.name);
-
-    var icon = getFileIcon(item.name, item.isDirectory);
-    var iconClass = item.isDirectory ? 'folder' : icon.split(' ')[1] || 'file';
-    var iconBase = icon.split(' ')[0];
-
-    if (item.isDirectory) {
-      li.innerHTML =
-        '<i class="fas ' + iconBase + ' icon folder"></i>' +
-        '<span class="name">' + escapeHtml(item.name) + '</span>' +
-        '<span class="meta">DIR</span>' +
-        '<div class="actions">' +
-        '<button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>' +
-        '</div>';
-    } else {
-      li.innerHTML =
-        '<i class="fas ' + iconBase + ' icon ' + iconClass + '"></i>' +
-        '<span class="name">' + escapeHtml(item.name) + '</span>' +
-        '<span class="meta">' + formatSize(item.size) + '</span>' +
-        '<div class="actions">' +
-        '<button class="action-btn edit" title="Edit"><i class="fas fa-pen-to-square"></i></button>' +
-        '<button class="action-btn download" title="Download"><i class="fas fa-download"></i></button>' +
-        '<button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>' +
-        '</div>';
-    }
-
-    dom.fileList.appendChild(li);
-  });
-}
-
-function updateFileCount(count) {
-  if (dom.fileCountBadge) {
-    dom.fileCountBadge.textContent = count > 0 ? count : '';
-    dom.fileCountBadge.title = (count || 0) + ' file' + (count !== 1 ? 's' : '');
-  }
-}
-
-function updateBreadcrumb(dirPath) {
-  dom.breadcrumb.innerHTML = '';
-  var parts = dirPath.split('/').filter(Boolean);
-
-  var root = document.createElement('span');
-  root.className = 'breadcrumb-item' + (parts.length === 0 ? ' active' : '');
-  root.innerHTML = '<i class="fas fa-home"></i>';
-  root.title = 'Workspace root';
-  if (parts.length > 0) root.addEventListener('click', function() { loadDir('/'); });
-  dom.breadcrumb.appendChild(root);
-
-  var built = '';
-  parts.forEach(function(part, i) {
-    var sep = document.createElement('span');
-    sep.className = 'breadcrumb-sep';
-    sep.textContent = '/';
-    dom.breadcrumb.appendChild(sep);
-
-    built = built ? built + '/' + part : '/' + part;
-    var item = document.createElement('span');
-    var isLast = (i === parts.length - 1);
-    item.className = 'breadcrumb-item' + (isLast ? ' active' : '');
-    item.textContent = part;
-    if (!isLast) {
-      item.addEventListener('click', function() { loadDir(built); });
-    }
-    dom.breadcrumb.appendChild(item);
-  });
-}
-
-dom.fileList.addEventListener('click', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li) return;
-
-  if (li.classList.contains('parent-item')) {
-    loadDir(li.dataset.path);
-    return;
-  }
-
-  var name = li.dataset.name;
-  var targetPath = li.dataset.path;
-  var isDir = li.dataset.isDir === 'true';
-
-  var actionBtn = e.target.closest('.action-btn');
-  if (actionBtn) {
-    e.stopPropagation();
-    if (actionBtn.classList.contains('edit')) openEditor(name);
-    else if (actionBtn.classList.contains('download')) downloadFile(name);
-    else if (actionBtn.classList.contains('delete')) showDeleteConfirm(name, isDir);
-    return;
-  }
-
-  if (isDir) {
-    loadDir(targetPath);
-  } else {
-    openEditor(name);
-  }
-});
-
-dom.fileList.addEventListener('dblclick', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li || li.classList.contains('parent-item')) return;
-  startRename(li);
-});
-
-dom.fileList.addEventListener('contextmenu', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li) return;
-  e.preventDefault();
-  showContextMenu(e.clientX, e.clientY, li);
-});
-
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('.context-menu')) {
-    hideContextMenu();
-  }
-});
-
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') {
-    if (dom.contextMenu.classList.contains('visible')) {
-      hideContextMenu();
-      return;
-    }
-    hideSearch();
-    document.querySelectorAll('.modal-overlay.active').forEach(function(m) {
-      m.classList.remove('active');
-    });
-  }
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'f') { e.preventDefault(); toggleSearch(); }
-    if (e.key === 'n') { e.preventDefault(); showNewFile(); }
-    if (e.key === 'r') { e.preventDefault(); loadDir(state.currentPath); toast('Refreshed', 'fa-rotate', 'var(--accent)'); }
-    if (e.key === 'f' && e.shiftKey) { e.preventDefault(); globalSearchBar.classList.toggle('active'); if (globalSearchBar.classList.contains('active')) globalSearchInput.focus(); }
-  }
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
-    if (!items.length) return;
-    if (e.key === 'ArrowDown') {
-      state.focusedIndex = Math.min(state.focusedIndex + 1, items.length - 1);
-    } else {
-      state.focusedIndex = Math.max(state.focusedIndex - 1, 0);
-    }
-    dom.fileList.querySelectorAll('.file-item.selected').forEach(function(el) { el.classList.remove('selected'); });
-    items[state.focusedIndex].classList.add('selected');
-    items[state.focusedIndex].scrollIntoView({ block: 'nearest' });
-  }
-  if (e.key === 'Enter' && state.focusedIndex >= 0 && !e.target.closest('input,textarea')) {
-    e.preventDefault();
-    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
-    var li = items[state.focusedIndex];
-    if (li) {
-      if (li.dataset.isDir === 'true') {
-        loadDir(li.dataset.path);
-      } else {
-        openEditor(li.dataset.name);
-      }
-    }
-  }
-  if (e.key === 'F2') {
-    e.preventDefault();
-    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
-    var li = items[state.focusedIndex];
-    if (li) startRename(li);
-  }
-  if (e.key === 'Delete') {
-    if (state.focusedIndex < 0) return;
-    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
-    var li = items[state.focusedIndex];
-    if (li && !e.target.closest('input')) {
-      showDeleteConfirm(li.dataset.name, li.dataset.isDir === 'true');
-    }
-  }
-  if (e.key === '?' && !e.target.closest('input')) {
-    toggleHelp();
-  }
-  if (e.key === 'Enter' && dom.searchInput === document.activeElement) {
-    dom.searchInput.blur();
-  }
-});
-
-dom.fileList.addEventListener('mouseover', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li) return;
-  dom.fileList.querySelectorAll('.file-item.selected').forEach(function(el) {
-    if (el !== li) el.classList.remove('selected');
-  });
-  if (!li.classList.contains('parent-item')) {
-    li.classList.add('selected');
-    var items = dom.fileList.querySelectorAll('.file-item:not(.parent-item)');
-    for (var i = 0; i < items.length; i++) {
-      if (items[i] === li) { state.focusedIndex = i; break; }
-    }
-  }
-});
-
-dom.fileList.addEventListener('mouseleave', function() {
-  dom.fileList.querySelectorAll('.file-item.selected').forEach(function(el) {
-    el.classList.remove('selected');
-  });
-});
-
-function toggleSearch() {
-  var isVisible = dom.searchBox.style.display !== 'none';
-  if (isVisible) {
-    hideSearch();
-  } else {
-    dom.searchBox.style.display = 'flex';
-    dom.searchToggle.classList.add('active');
-    dom.searchInput.focus();
-  }
-}
-
-function hideSearch() {
-  dom.searchBox.style.display = 'none';
-  dom.searchToggle.classList.remove('active');
-  dom.sortBar.style.display = 'none';
-  state.filterText = '';
-  dom.searchInput.value = '';
-  applyFilterAndSort();
-  dom.fileToolbar.style.display = 'none';
-}
-
-dom.searchToggle.addEventListener('click', function() {
-  globalSearchBar.classList.toggle('active');
-  if (globalSearchBar.classList.contains('active')) {
-    globalSearchInput.focus();
-  } else {
-    globalSearchInput.value = '';
-    globalSearchBar.classList.remove('active');
-  }
-  if (dom.searchBox.style.display !== 'none') {
-    hideSearch();
-  }
-});
-
-dom.searchInput.addEventListener('input', function() {
-  state.filterText = dom.searchInput.value;
-  applyFilterAndSort();
-  if (state.filterText) {
-    dom.sortBar.style.display = 'flex';
-    dom.searchClear.classList.add('visible');
-  } else {
-    dom.sortBar.style.display = 'none';
-    dom.searchClear.classList.remove('visible');
-  }
-});
-
-dom.searchClear.addEventListener('click', function() {
-  state.filterText = '';
-  dom.searchInput.value = '';
-  dom.searchClear.classList.remove('visible');
-  dom.sortBar.style.display = 'none';
-  applyFilterAndSort();
-  dom.searchInput.focus();
-});
-
-dom.sortBtn.addEventListener('click', function() {
-  dom.sortBar.style.display = dom.sortBar.style.display === 'none' ? 'flex' : 'none';
-});
-
-document.querySelectorAll('.sort-option').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var sort = this.dataset.sort;
-    if (state.sortBy === sort) {
-      state.sortAsc = !state.sortAsc;
-      var icon = this.querySelector('i');
-      icon.className = 'fas fa-sort-' + (sort === 'name' ? 'alpha' : sort === 'size' ? 'numeric' : 'amount') + '-' + (state.sortAsc ? 'down' : 'up');
-    } else {
-      document.querySelectorAll('.sort-option').forEach(function(b) { b.classList.remove('active'); });
-      this.classList.add('active');
-      state.sortBy = sort;
-      state.sortAsc = true;
-    }
-    applyFilterAndSort();
-  });
-});
-
-dom.viewToggle.addEventListener('click', function() {
-  state.isListView = !state.isListView;
-  dom.viewToggle.innerHTML = '<i class="fas fa-' + (state.isListView ? 'list' : 'table-cells') + '"></i>';
-  dom.fileList.classList.toggle('grid-view', !state.isListView);
-});
-
-function showContextMenu(x, y, li) {
-  state.contextTarget = {
-    name: li.dataset.name,
-    path: li.dataset.path,
-    isDir: li.dataset.isDir === 'true',
-  };
-  var menu = dom.contextMenu;
-  menu.style.left = x + 'px';
-  menu.style.top = y + 'px';
-  menu.classList.add('visible');
-
-  var maxX = window.innerWidth - menu.offsetWidth - 10;
-  var maxY = window.innerHeight - menu.offsetHeight - 10;
-  if (x > maxX) menu.style.left = maxX + 'px';
-  if (y > maxY) menu.style.top = maxY + 'px';
-
-  var items = menu.querySelectorAll('.context-menu-item');
-  items.forEach(function(item) {
-    var action = item.dataset.action;
-    if (action === 'open') {
-      item.style.display = state.contextTarget.isDir ? 'flex' : 'none';
-    }
-    if (action === 'edit') {
-      item.style.display = state.contextTarget.isDir ? 'none' : 'flex';
-    }
-    if (action === 'download') {
-      item.style.display = state.contextTarget.isDir ? 'none' : 'flex';
-    }
-    if (action === 'extract') {
-      var archiveExts = ['.zip', '.tar', '.gz', '.tgz', '.tar.gz', '.rar', '.7z'];
-      var isArchive = !state.contextTarget.isDir && archiveExts.some(function(ext) {
-        return state.contextTarget.name.toLowerCase().endsWith(ext);
-      });
-      item.style.display = isArchive ? 'flex' : 'none';
-    }
-  });
-}
-
-function hideContextMenu() {
-  dom.contextMenu.classList.remove('visible');
-  state.contextTarget = null;
-}
-
-document.querySelectorAll('.context-menu-item').forEach(function(item) {
-  item.addEventListener('click', function() {
-    var action = this.dataset.action;
-    var target = state.contextTarget;
-    if (!target) return;
-    hideContextMenu();
-
-    if (action === 'open') loadDir(target.path);
-    else if (action === 'edit') openEditor(target.name);
-    else if (action === 'rename') startRenameFromContext(target.name);
-    else if (action === 'download') downloadFile(target.name);
-    else if (action === 'copy-path') copyPath(target.path);
-    else if (action === 'delete') showDeleteConfirm(target.name, target.isDir);
-  });
-});
-
-function copyPath(filePath) {
-  navigator.clipboard.writeText(filePath).then(function() {
-    toast('Path copied: ' + filePath, 'fa-link', 'var(--accent)');
-  }).catch(function() {
-    toast('Failed to copy path', 'fa-circle-exclamation', 'var(--danger)');
-  });
-}
-
-function startRename(li) {
-  var name = li.dataset.name;
-  var nameEl = li.querySelector('.name');
-  var original = name;
-
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'rename-input';
-  input.value = name;
-  input.spellcheck = false;
-  nameEl.textContent = '';
-  nameEl.appendChild(input);
-  input.focus();
-  input.select();
-
-  var dot = original.lastIndexOf('.');
-  if (dot > 0) input.setSelectionRange(0, dot);
-
-  function finish(confirmed) {
-    var newName = input.value.trim();
-    if (confirmed && newName && newName !== original) {
-      renameFile(original, newName);
-    }
-    nameEl.textContent = escapeHtml(original);
-  }
-
-  input.addEventListener('blur', function() { finish(true); });
-  input.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-  });
-}
-
-function startRenameFromContext(name) {
-  var li = dom.fileList.querySelector('[data-name="' + CSS.escape(name) + '"]');
-  if (li) startRename(li);
-}
-
-async function renameFile(oldName, newName) {
-  var oldPath = joinPath(state.currentPath, oldName);
-  var newPath = joinPath(state.currentPath, newName);
-  try {
-    await api('/api/file/move', {
-      method: 'POST',
-      body: JSON.stringify({ from: oldPath, to: newPath }),
-    });
-    toast('Renamed: ' + oldName + ' → ' + newName, 'fa-pencil', 'var(--success)');
-    loadDir(state.currentPath);
-  } catch (err) {
-    toast('Rename failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  }
-}
-
-function showDeleteConfirm(name, isDir) {
-  state.selectedFile = { name: name, isDir: isDir };
-  state.killConfirm = false;
-  document.getElementById('confirm-text').textContent =
-    (isDir ? 'Delete folder' : 'Delete file') + ' "' + name + '"? This cannot be undone.';
-  document.getElementById('confirm-action').textContent = (isDir ? 'Delete Folder' : 'Delete');
-  dom.confirmModal.classList.add('active');
-}
-
-document.getElementById('confirm-action').addEventListener('click', function() {
-  if (state.killConfirm) {
-    state.killConfirm = false;
-    dom.confirmModal.classList.remove('active');
-    executeKill();
-    return;
-  }
-  if (state.selectedFile) {
-    var filePath = joinPath(state.currentPath, state.selectedFile.name);
-    api('/api/file?path=' + encodeURIComponent(filePath), { method: 'DELETE' })
-      .then(function() {
-        toast('Deleted: ' + state.selectedFile.name, 'fa-trash', 'var(--danger)');
-        loadDir(state.currentPath);
-      })
-      .catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
-  }
-  dom.confirmModal.classList.remove('active');
-});
-
-document.getElementById('confirm-modal-close').addEventListener('click', function() {
-  dom.confirmModal.classList.remove('active');
-});
-
-document.getElementById('upload-btn').addEventListener('click', function() {
-  dom.uploadModal.classList.add('active');
-});
-
-document.getElementById('upload-modal-close').addEventListener('click', function() {
-  dom.uploadModal.classList.remove('active');
-});
-
-document.getElementById('upload-url-btn').addEventListener('click', function() {
-  var urlInput = document.getElementById('upload-url-input');
-  var url = urlInput.value.trim();
-  if (!url) return;
-  urlInput.value = '';
-  uploadFromUrl(url);
-});
-
-document.getElementById('upload-url-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') document.getElementById('upload-url-btn').click();
-});
-
-function uploadFromUrl(url) {
-  var progressContainer = document.getElementById('progress-items');
-  var item = document.createElement('div');
-  item.className = 'progress-item';
-  item.innerHTML =
-    '<span class="progress-text"><i class="fas fa-spinner fa-spin" style="color:var(--text-muted)"></i> ' + escapeHtml(url) + '</span>' +
-    '<div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>' +
-    '<span class="progress-text" id="pct-url">Fetching...</span>';
-  progressContainer.appendChild(item);
-
-  api('/api/upload/url', {
-    method: 'POST',
-    body: JSON.stringify({ url: url, path: state.currentPath }),
-  }).then(function(data) {
-    item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-check-circle" style="color:var(--success)"></i> ' + escapeHtml(data.filename);
-    item.querySelector('.progress-fill').style.width = '100%';
-    item.querySelector('.progress-text:last-child').textContent = 'Done';
-  }).catch(function(err) {
-    item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger)"></i> ' + escapeHtml(url);
-    item.querySelector('.progress-text:last-child').textContent = err.message;
-  });
-
-  var uploadProgressDiv = document.getElementById('upload-progress');
-  uploadProgressDiv.style.display = 'block';
-  dom.uploadModal.classList.add('active');
-}
-
-var dropzone = document.getElementById('dropzone');
-var fileInput = document.getElementById('file-input');
-var progressFill = document.getElementById('progress-fill');
-var progressText = document.getElementById('progress-text');
-var uploadProgressDiv = document.getElementById('upload-progress');
-
-dropzone.addEventListener('click', function() { fileInput.click(); });
-
-dropzone.addEventListener('dragover', function(e) {
-  e.preventDefault();
-  dropzone.classList.add('drag-over');
-});
-
-dropzone.addEventListener('dragleave', function() {
-  dropzone.classList.remove('drag-over');
-});
-
-dropzone.addEventListener('drop', function(e) {
-  e.preventDefault();
-  dropzone.classList.remove('drag-over');
-  handleFiles(e.dataTransfer.files);
-});
-
-fileInput.addEventListener('change', function() {
-  handleFiles(fileInput.files);
-});
-
-document.addEventListener('dragover', function(e) {
-  if (!e.target.closest('.dropzone') && !e.target.closest('input')) {
-    e.preventDefault();
-    dom.fullPageDropzone.classList.add('active');
-  }
-});
-
-document.addEventListener('dragleave', function(e) {
-  if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
-    dom.fullPageDropzone.classList.remove('active');
-  }
-});
-
-document.addEventListener('drop', function(e) {
-  e.preventDefault();
-  dom.fullPageDropzone.classList.remove('active');
-  if (!e.target.closest('.dropzone')) {
-    dom.uploadModal.classList.add('active');
-    handleFiles(e.dataTransfer.files);
-  }
-});
-
-function handleFiles(files) {
-  if (!files.length) return;
-  uploadProgressDiv.style.display = 'block';
-  dom.uploadModal.classList.add('active');
-
-  var progressContainer = document.getElementById('progress-items');
-  progressContainer.innerHTML = '';
-
-  Array.from(files).forEach(function(file) {
-    var item = document.createElement('div');
-    item.className = 'progress-item';
-    item.innerHTML =
-      '<span class="progress-text">' + escapeHtml(file.name) + '</span>' +
-      '<div class="progress-bar"><div class="progress-fill" data-filename="' + escapeHtml(file.name) + '"></div></div>' +
-      '<span class="progress-text" id="pct-' + escapeHtml(file.name) + '">0%</span>';
-    progressContainer.appendChild(item);
-
-    var formData = new FormData();
-    formData.append('file', file);
-    formData.append('path', state.currentPath);
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload');
-    xhr.setRequestHeader('x-session-token', getSessionToken());
-
-    xhr.upload.addEventListener('progress', function(e) {
-      if (e.lengthComputable) {
-        var pct = Math.round((e.loaded / e.total) * 100);
-        var fill = item.querySelector('.progress-fill');
-        fill.style.width = pct + '%';
-        item.querySelector('.progress-text:last-child').textContent = pct + '%';
-      }
-    });
-
-    xhr.addEventListener('load', function() {
-      if (xhr.status === 200) {
-        item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-check-circle" style="color:var(--success)"></i> ' + escapeHtml(file.name);
-        item.querySelector('.progress-fill').style.background = 'var(--success)';
-        item.querySelector('.progress-text:last-child').textContent = 'Done';
-      } else {
-        item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger)"></i> ' + escapeHtml(file.name);
-      }
-    });
-
-    xhr.addEventListener('error', function() {
-      item.querySelector('.progress-text:first-child').innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger)"></i> ' + escapeHtml(file.name);
-    });
-
-    xhr.send(formData);
-  });
-
-  fileInput.value = '';
-  setTimeout(function() { loadDir(state.currentPath); }, 500);
-}
-
-document.getElementById('new-file-btn').addEventListener('click', showNewFile);
-
-document.getElementById('new-dir-btn').addEventListener('click', function() {
-  dom.newfileModal.classList.add('active');
-  document.getElementById('newfile-type').value = 'directory';
-  document.getElementById('newfile-name').value = '';
-  setTimeout(function() { document.getElementById('newfile-name').focus(); }, 100);
-});
-
-function showNewFile() {
-  dom.newfileModal.classList.add('active');
-  document.getElementById('newfile-type').value = 'file';
-  document.getElementById('newfile-name').value = '';
-  setTimeout(function() { document.getElementById('newfile-name').focus(); }, 100);
-}
-
-document.getElementById('newfile-modal-close').addEventListener('click', function() {
-  dom.newfileModal.classList.remove('active');
-});
-
-document.getElementById('newfile-submit').addEventListener('click', function() {
-  var name = document.getElementById('newfile-name').value.trim();
-  var type = document.getElementById('newfile-type').value;
-  if (!name) { toast('Please enter a name.', 'fa-circle-exclamation', 'var(--warning)'); return; }
-
-  var filePath = joinPath(state.currentPath, name);
-
-  var body = type === 'directory' ? { _isDir: true } : { content: '' };
-
-  api('/api/file?path=' + encodeURIComponent(filePath), {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  }).then(function() {
-    toast('Created ' + (type === 'directory' ? 'folder' : 'file') + ': ' + name,
-      type === 'directory' ? 'fa-folder-plus' : 'fa-file-circle-plus',
-      type === 'directory' ? 'var(--accent)' : 'var(--success)');
-    dom.newfileModal.classList.remove('active');
-    loadDir(state.currentPath);
-  }).catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
-});
-
-document.getElementById('newfile-name').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') document.getElementById('newfile-submit').click();
-});
-
-document.getElementById('editor-modal-close').addEventListener('click', closeEditor);
-
-function openEditor(fileName) {
-  state.editingFileName = fileName;
-  var filePath = joinPath(state.currentPath, fileName);
-  var nameEl = document.getElementById('editor-filename');
-  nameEl.innerHTML = '<i class="fas fa-file"></i> ' + escapeHtml(fileName);
-
-  api('/api/file?path=' + encodeURIComponent(filePath))
-    .then(function(data) {
-      state.editingOriginalContent = data.content;
-      dom.editorModal.classList.add('active');
-
-      var ext = getExtension(fileName);
-      var modeMap = {
-        py: 'python', js: 'javascript', ts: 'javascript', sh: 'shell',
-        css: 'css', html: 'htmlmixed', json: 'javascript',
-        yml: 'yaml', yaml: 'yaml', md: 'markdown', xml: 'xml',
-        jsx: 'javascript', tsx: 'javascript', scss: 'css', less: 'css',
-      };
-      var mode = modeMap[ext] || null;
-
-      var editorEl = document.getElementById('editor');
-      state.editorInstance = CodeMirror(editorEl, {
-        value: data.content,
-        mode: mode,
-        theme: 'material-palenight',
-        lineNumbers: true,
-        lineWrapping: true,
-        indentWithTabs: true,
-        tabSize: 2,
-        autofocus: true,
-        extraKeys: {
-          'Ctrl-S': function() { saveEditor(state.editingFileName); },
-          'Cmd-S': function() { saveEditor(state.editingFileName); },
-        },
-      });
-
-      state.editorInstance.on('change', function() {
-        nameEl.innerHTML =
-          '<i class="fas fa-pen" style="font-size:0.8rem"></i> ' +
-          escapeHtml(state.editingFileName) +
-          ' <span style="color:var(--warning);font-size:0.75rem;font-weight:400;">(unsaved)</span>';
-      });
-
-      setTimeout(function() {
-        state.editorInstance.setSize('100%', '100%');
-        state.editorInstance.refresh();
-      }, 80);
-    })
-    .catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
-}
-
-function saveEditor(fileName) {
-  if (!state.editorInstance) return;
-  var filePath = joinPath(state.currentPath, fileName);
-  api('/api/file?path=' + encodeURIComponent(filePath), {
-    method: 'PUT',
-    body: JSON.stringify({ content: state.editorInstance.getValue() }),
-  }).then(function() {
-    state.editingOriginalContent = state.editorInstance.getValue();
-    document.getElementById('editor-filename').innerHTML = '<i class="fas fa-check-circle" style="color:var(--success)"></i> ' + escapeHtml(fileName);
-    toast('Saved: ' + fileName, 'fa-check-circle', 'var(--success)');
-  }).catch(function(err) { toast(err.message, 'fa-circle-exclamation', 'var(--danger)'); });
-}
-
-document.getElementById('editor-save').addEventListener('click', function() {
-  saveEditor(state.editingFileName);
-});
-
-window.addEventListener('beforeunload', function(e) {
-  if (state.editorInstance && state.editorInstance.getValue() !== state.editingOriginalContent) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-
-function closeEditor() {
-  if (!state.editorInstance) { dom.editorModal.classList.remove('active'); return; }
-  if (typeof state.editorInstance.getValue === 'function' &&
-      state.editorInstance.getValue() !== state.editingOriginalContent) {
-    if (!confirm('You have unsaved changes. Close without saving?')) return;
-  }
-  dom.editorModal.classList.remove('active');
-  if (typeof state.editorInstance.toTextArea === 'function') {
-    state.editorInstance.toTextArea();
-  }
-  state.editorInstance = null;
-}
-
-function downloadFile(fileName) {
-  var filePath = joinPath(state.currentPath, fileName);
-  var token = getSessionToken();
-  fetch('/api/download?path=' + encodeURIComponent(filePath), {
-    headers: { 'x-session-token': token },
-  }).then(function(resp) {
-    if (!resp.ok) throw new Error('Download failed');
-    return resp.blob();
-  }).then(function(blob) {
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(a.href);
-  }).catch(function(err) {
-    toast('Download failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  });
-}
-
-document.getElementById('refresh-btn').addEventListener('click', function() {
-  toast('Refreshing...', 'fa-rotate fa-spin', 'var(--accent)');
-  loadDir(state.currentPath);
-});
-
-document.getElementById('kill-btn').addEventListener('click', function() {
-  state.killConfirm = true;
-  state.selectedFile = null;
-  document.getElementById('confirm-text').innerHTML =
-    '<i class="fas fa-power-off" style="color:var(--danger);font-size:1.2rem;display:block;text-align:center;margin-bottom:12px"></i>' +
-    'Kill all processes and stop the workflow?<br><span style="font-size:0.82rem;color:var(--text-muted)">This will terminate the server and SSH tunnel.</span>';
-  document.getElementById('confirm-action').textContent = 'Shut Down';
-  dom.confirmModal.classList.add('active');
-});
-
-function executeKill() {
-  var btn = document.getElementById('kill-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  toast('Shutting down...', 'fa-power-off', 'var(--danger)');
-  api('/api/kill', { method: 'POST' }).then(function(d) {
-    toast(d.message || 'Goodbye!', 'fa-power-off', 'var(--danger)');
-  }).catch(function() {});
-  setTimeout(function() {
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg-primary);color:var(--text-muted);font-family:var(--font-sans)"><div style="text-align:center"><i class="fas fa-power-off" style="font-size:3rem;opacity:0.3;margin-bottom:16px;display:block"></i><p>Workflow Shell terminated</p><p style="font-size:0.85rem;margin-top:8px;opacity:0.6">The server has been shut down.</p></div></div>';
-  }, 3000);
-}
-
-document.getElementById('help-btn').addEventListener('click', toggleHelp);
-
-document.getElementById('help-modal-close').addEventListener('click', function() {
-  dom.helpModal.classList.remove('active');
-});
-
-function toggleHelp() {
-  dom.helpModal.classList.toggle('active');
-}
-
-document.querySelectorAll('.modal-close').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var overlay = this.closest('.modal-overlay');
-    if (overlay) overlay.classList.remove('active');
-  });
-});
-
-// ─── Quick Actions ─────────────────────────────────────────────────────────
-
-var quickActionsData = [];
-
-function loadQuickActions() {
-  var list = document.getElementById('quick-actions-list');
-  list.innerHTML = '<div class="qa-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
-  api('/api/quick-actions')
-    .then(function(data) {
-      quickActionsData = data.actions || [];
-      renderQuickActions();
-    })
-    .catch(function(err) {
-      list.innerHTML = '<div class="qa-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-    });
-}
-
-function renderQuickActions() {
-  var list = document.getElementById('quick-actions-list');
-  if (!quickActionsData.length) {
-    list.innerHTML = '<div class="qa-empty"><i class="fas fa-bolt"></i><p>No quick actions yet</p></div>';
-    return;
-  }
-
-  list.innerHTML = '';
-  var defaultNames = ['Disk Usage', 'Memory Info', 'List Processes', 'Check Uptime', 'Git Log'];
-
-  quickActionsData.forEach(function(action, idx) {
-    var isDefault = defaultNames.indexOf(action.Command_Name) !== -1;
-    var card = document.createElement('div');
-    card.className = 'qa-card' + (isDefault ? ' default' : '');
-    card.style.animationDelay = (idx * 0.04) + 's';
-
-    card.innerHTML =
-      '<div class="qa-info">' +
-        '<div class="qa-name">' + escapeHtml(action.Command_Name) + '</div>' +
-        '<div class="qa-desc">' + escapeHtml(action.Command_Description || 'No description') + '</div>' +
-        '<div class="qa-command-preview">$ ' + escapeHtml(action.Command) + '</div>' +
-      '</div>' +
-      '<div class="qa-actions">' +
-        '<button class="qa-btn run" title="Run command"><i class="fas fa-play"></i></button>' +
-        '<button class="qa-btn delete' + (isDefault ? ' default' : '') + '" title="' + (isDefault ? 'Default action' : 'Delete action') + '">' +
-          (isDefault ? '<i class="fas fa-lock"></i>' : '<i class="fas fa-trash"></i>') +
-        '</button>' +
-      '</div>';
-
-    card.querySelector('.qa-btn.run').addEventListener('click', function() {
-      runQuickAction(action);
-    });
-
-    if (!isDefault) {
-      card.querySelector('.qa-btn.delete').addEventListener('click', function() {
-        deleteQuickAction(action.Command_Name);
-      });
-    }
-
-    list.appendChild(card);
-  });
-}
-
-var previousTabBeforeRunner = 'terminal';
-
-function runQuickAction(action) {
-  var activeTab = document.querySelector('.pane-tab.active');
-  if (activeTab) previousTabBeforeRunner = activeTab.dataset.tab;
-  var overlay = document.getElementById('qa-runner-overlay');
-  var terminal = document.getElementById('terminal-container');
-  terminal.style.display = 'none';
-  overlay.style.display = 'flex';
-
-  document.getElementById('qa-runner-title').textContent = action.Command_Name;
-  document.getElementById('qa-runner-desc').textContent = action.Command_Description || 'No description';
-  document.getElementById('qa-runner-cmd').textContent = action.Command;
-
-  var outputEl = document.getElementById('qa-runner-output');
-  outputEl.innerHTML = '<div class="qa-runner-loading"><i class="fas fa-spinner fa-spin"></i> Running...</div>';
-
-  api('/api/quick-actions/run', {
-    method: 'POST',
-    body: JSON.stringify({ command: action.Command }),
-  }).then(function(data) {
-    if (data.success) {
-      outputEl.innerHTML = '<pre class="success">' + escapeHtml(data.output || '') + '</pre>';
-    } else {
-      var html = '';
-      if (data.output) html += '<pre class="success">' + escapeHtml(data.output) + '</pre>';
-      if (data.error) html += '<pre class="error">' + escapeHtml(data.error) + '</pre>';
-      if (!html) html = '<pre class="error">Command failed (exit code: ' + (data.exitCode || 1) + ')</pre>';
-      outputEl.innerHTML = html;
-    }
-  }).catch(function(err) {
-    outputEl.innerHTML = '<pre class="error">Error: ' + escapeHtml(err.message) + '</pre>';
-  });
-}
-
-function closeRunner() {
-  document.getElementById('qa-runner-overlay').style.display = 'none';
-  document.getElementById('qa-runner-output').innerHTML = '';
-  switchPaneTab(previousTabBeforeRunner);
-}
-
-document.getElementById('qa-runner-close').addEventListener('click', closeRunner);
-document.getElementById('qa-runner-close-btn').addEventListener('click', closeRunner);
-
-function deleteQuickAction(name) {
-  if (!confirm('Delete quick action "' + name + '"?')) return;
-  api('/api/quick-actions', {
-    method: 'DELETE',
-    body: JSON.stringify({ command_name: name }),
-  }).then(function(data) {
-    quickActionsData = data.actions || [];
-    renderQuickActions();
-    if (data.pushed) {
-      toast('Deleted: ' + name + ' (committed to repo)', 'fa-trash', 'var(--danger)');
-    } else {
-      toast('Deleted: ' + name, 'fa-trash', 'var(--danger)');
-    }
-  }).catch(function(err) {
-    toast('Delete failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  });
-}
-
-document.querySelectorAll('.pane-tab').forEach(function(tab) {
-  tab.addEventListener('click', function() {
-    switchPaneTab(this.dataset.tab);
-    if (this.dataset.tab === 'quick-actions') loadQuickActions();
-  });
-});
-
-document.getElementById('qa-add-btn').addEventListener('click', function() {
-  document.getElementById('qa-name').value = '';
-  document.getElementById('qa-desc').value = '';
-  document.getElementById('qa-command').value = '';
-  document.getElementById('qa-modal').classList.add('active');
-  setTimeout(function() { document.getElementById('qa-name').focus(); }, 100);
-});
-
-document.getElementById('qa-modal-close').addEventListener('click', function() {
-  document.getElementById('qa-modal').classList.remove('active');
-});
-
-document.getElementById('qa-submit').addEventListener('click', function() {
-  var name = document.getElementById('qa-name').value.trim();
-  var desc = document.getElementById('qa-desc').value.trim();
-  var command = document.getElementById('qa-command').value.trim();
-  if (!name) { toast('Please enter a command name.', 'fa-circle-exclamation', 'var(--warning)'); return; }
-  if (!command) { toast('Please enter a command.', 'fa-circle-exclamation', 'var(--warning)'); return; }
-
-  api('/api/quick-actions', {
-    method: 'POST',
-    body: JSON.stringify({
-      command_name: name,
-      command_description: desc,
-      command: command,
-    }),
-  }).then(function(data) {
-    quickActionsData = data.actions || [];
-    renderQuickActions();
-    document.getElementById('qa-modal').classList.remove('active');
-    if (data.pushed) {
-      toast('Added: ' + name + ' (committed to repo)', 'fa-plus', 'var(--success)');
-    } else {
-      toast('Added: ' + name, 'fa-plus', 'var(--success)');
-    }
-  }).catch(function(err) {
-    toast('Add failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  });
-});
-
-document.getElementById('qa-command').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') document.getElementById('qa-submit').click();
-});
-
-// ─── Session Timer ─────────────────────────────────────────────────────────
-
-var sessionStart = Date.now();
-var timerDisplay = document.getElementById('timer-display');
-var timerInfoBtn = document.getElementById('timer-info-btn');
-
-setInterval(function() {
-  var elapsed = Math.floor((Date.now() - sessionStart) / 1000);
-  var m = Math.floor(elapsed / 60);
-  var s = elapsed % 60;
-  timerDisplay.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-}, 1000);
-
-var timerTooltip = null;
-
-timerInfoBtn.addEventListener('click', function(e) {
-  e.stopPropagation();
-  if (timerTooltip && timerTooltip.classList.contains('visible')) {
-    timerTooltip.classList.remove('visible');
-    return;
-  }
-  if (!timerTooltip) {
-    timerTooltip = document.createElement('div');
-    timerTooltip.className = 'timer-tooltip';
-    timerTooltip.innerHTML =
-      '<h4><i class="fas fa-clock"></i> Session Timeout</h4>' +
-      '<p>This timer tracks how long this workflow shell has been running. The session token expires after 5 minutes of inactivity.</p>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Session TTL</span><span class="timer-tip-value">5 min (idle)</span></div>' +
-      '<div class="timer-tip-row"><span class="timer-tip-label">Session renews</span><span class="timer-tip-value">On each request</span></div>';
-    document.body.appendChild(timerTooltip);
-  }
-  var rect = timerInfoBtn.getBoundingClientRect();
-  timerTooltip.style.left = Math.max(10, rect.right - 280) + 'px';
-  timerTooltip.style.top = (rect.bottom + 8) + 'px';
-  timerTooltip.classList.add('visible');
-});
-
-document.addEventListener('click', function(e) {
-  if (timerTooltip && !e.target.closest('.session-timer')) {
-    timerTooltip.classList.remove('visible');
-  }
-});
-
-// ─── Logout ─────────────────────────────────────────────────────────────────
-
-var token = getSessionToken();
-if (token) {
-  document.getElementById('logout-btn').style.display = 'inline-flex';
-}
-
-document.getElementById('logout-btn').addEventListener('click', function() {
-  api('/api/logout', { method: 'POST' }).then(function() {
-    localStorage.removeItem('wfs-session-token');
-    toast('Logged out', 'fa-right-from-bracket', 'var(--accent)');
-    setTimeout(function() { window.location.href = '/login.html'; }, 800);
-  }).catch(function() {
-    localStorage.removeItem('wfs-session-token');
-    window.location.href = '/login.html';
-  });
-});
-
-// ─── Theme Toggle ──────────────────────────────────────────────────────────
-
-var themeToggle = document.getElementById('theme-toggle');
-var currentTheme = localStorage.getItem('wfs-theme') || 'dark';
-document.documentElement.setAttribute('data-theme', currentTheme);
-themeToggle.innerHTML = '<i class="fas fa-' + (currentTheme === 'dark' ? 'sun' : 'moon') + '"></i>';
-
-themeToggle.addEventListener('click', function() {
-  var theme = document.documentElement.getAttribute('data-theme');
-  var newTheme = theme === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', newTheme);
-  localStorage.setItem('wfs-theme', newTheme);
-  themeToggle.innerHTML = '<i class="fas fa-' + (newTheme === 'dark' ? 'sun' : 'moon') + '"></i>';
-  toast(newTheme === 'light' ? 'Light theme' : 'Dark theme', 'fa-palette', 'var(--accent)');
-});
-
-// ─── File Pane Tabs (List / Tree) ──────────────────────────────────────────
-
-function switchFileTab(tab) {
-  document.querySelectorAll('.pane-header-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelector('.pane-header-tab[data-ftab="' + tab + '"]').classList.add('active');
-  if (tab === 'files') {
-    document.getElementById('file-view-container').style.display = 'flex';
-    document.getElementById('file-tree-container').style.display = 'none';
-  } else {
-    document.getElementById('file-view-container').style.display = 'none';
-    document.getElementById('file-tree-container').style.display = 'block';
-    loadFileTree();
-  }
-}
-
-document.querySelectorAll('.pane-header-tab').forEach(function(tab) {
-  tab.addEventListener('click', function() { switchFileTab(this.dataset.ftab); });
-});
-
-// ─── File Tree ──────────────────────────────────────────────────────────────
-
-function loadFileTree() {
-  var container = document.getElementById('file-tree');
-  var status = document.getElementById('file-tree-status');
-  container.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div>';
-  api('/api/files/tree')
-    .then(function(data) {
-      renderTree(data.tree || [], container, data.path || '/');
-      status.innerHTML = '';
-    })
-    .catch(function(err) {
-      container.innerHTML = '';
-      status.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-    });
-}
-
-function renderTree(items, container, basePath) {
-  container.innerHTML = '';
-  items.forEach(function(item) {
-    var div = document.createElement('div');
-    div.className = 'tree-item';
-    if (item.isDirectory) {
-      var hasChildren = item.children && item.children.length > 0;
-      var toggle = document.createElement('span');
-      toggle.className = 'tree-toggle';
-      toggle.textContent = hasChildren ? '▸' : '';
-      div.appendChild(toggle);
-      var icon = document.createElement('span');
-      icon.className = 'tree-icon folder';
-      icon.innerHTML = '<i class="fas fa-folder"></i>';
-      div.appendChild(icon);
-      var name = document.createElement('span');
-      name.className = 'tree-name';
-      name.textContent = item.name;
-      div.appendChild(name);
-      var childPath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
-      div.addEventListener('click', function(e) {
-        var childrenContainer = div.nextElementSibling;
-        if (childrenContainer && childrenContainer.classList.contains('tree-children')) {
-          var isHidden = childrenContainer.style.display === 'none';
-          childrenContainer.style.display = isHidden ? 'block' : 'none';
-          toggle.textContent = isHidden ? '▾' : '▸';
-        }
-      });
-      container.appendChild(div);
-      var childrenContainer = document.createElement('div');
-      childrenContainer.className = 'tree-children';
-      childrenContainer.style.display = 'none';
-      if (hasChildren) renderTree(item.children, childrenContainer, childPath);
-      container.appendChild(childrenContainer);
-    } else {
-      var toggle = document.createElement('span');
-      toggle.className = 'tree-toggle';
-      toggle.textContent = '';
-      div.appendChild(toggle);
-      var icon = document.createElement('span');
-      icon.className = 'tree-icon file';
-      icon.innerHTML = '<i class="fas fa-file"></i>';
-      div.appendChild(icon);
-      var name = document.createElement('span');
-      name.className = 'tree-name';
-      name.textContent = item.name;
-      div.appendChild(name);
-      var filePath = basePath === '/' ? '/' + item.name : basePath + '/' + item.name;
-      div.addEventListener('click', function() {
-        state.currentPath = basePath;
-        switchFileTab('files');
-        loadDir(basePath);
-        openEditor(item.name);
-      });
-      container.appendChild(div);
-    }
-  });
-  if (!items.length) container.innerHTML = '<div class="search-empty"><i class="fas fa-folder-open"></i><p>Empty</p></div>';
-}
-
-// ─── System Stats Panel ─────────────────────────────────────────────────────
-
-var statsTimer = null;
-
-document.querySelector('.pane-tab[data-tab="stats"]').addEventListener('click', function() {
-  loadStats();
-});
-
-function loadStats() {
-  var body = document.getElementById('stats-body');
-  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Loading stats...</div>';
-  api('/api/system-stats')
-    .then(function(d) {
-      var html = '';
-      html += '<div class="stat-grid">';
-      html += statCard('Disk Size', d.disk.size, 'green');
-      html += statCard('Disk Used', d.disk.used, d.disk.usePercent && parseInt(d.disk.usePercent) > 80 ? 'red' : 'yellow');
-      html += statCard('Disk Avail', d.disk.avail, 'green');
-      html += statCard('Disk Use', d.disk.usePercent || '0%', parseInt(d.disk.usePercent) > 80 ? 'red' : 'green');
-      html += statCard('Memory Total', d.memory.total, 'accent');
-      html += statCard('Memory Used', d.memory.used, parseInt(d.memory.used) > 4096 ? 'yellow' : 'green');
-      html += statCard('Memory Free', d.memory.free, 'green');
-      html += statCard('Memory Avail', d.memory.avail || '-', 'green');
-      html += statCard('CPU Load (1m)', d.load['1min'], parseFloat(d.load['1min']) > 2 ? 'red' : 'green');
-      html += statCard('CPU Load (5m)', d.load['5min'], parseFloat(d.load['5min']) > 2 ? 'yellow' : 'green');
-      html += statCard('CPU Load (15m)', d.load['15min'], 'green');
-      html += statCard('Processes', d.processes, 'accent');
-      html += '</div>';
-      html += '<div style="text-align:center;color:var(--text-muted);font-size:0.78rem"><i class="fas fa-clock"></i> Uptime: ' + escapeHtml(d.uptime) + '</div>';
-      body.innerHTML = html;
-    })
-    .catch(function(err) {
-      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-    });
-}
-
-function statCard(label, value, color) {
-  return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value ' + (color || '') + '">' + escapeHtml(String(value)) + '</div></div>';
-}
-
-// ─── Git Status Panel ───────────────────────────────────────────────────────
-
-document.querySelector('.pane-tab[data-tab="git"]').addEventListener('click', function() {
-  loadGitStatus();
-});
-
-function loadGitStatus() {
-  var body = document.getElementById('git-body');
-  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Loading git status...</div>';
-  api('/api/git-status')
-    .then(function(d) {
-      var html = '';
-      html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-code-branch"></i> Branch</div>';
-      html += '<div class="git-branch"><i class="fas fa-code-branch"></i> ' + escapeHtml(d.branch) + '</div></div>';
-      if (d.changes && d.changes.length) {
-        html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-pen-to-square"></i> Changes (' + d.changes.length + ')</div>';
-        d.changes.forEach(function(c) {
-          var badge = c.status.trim()[0] || '?';
-          var label = { M: 'M', A: 'A', D: 'D', '?': '?' }[badge] || '?';
-          html += '<div class="git-change"><span class="git-status-badge ' + label + '">' + label + '</span><span>' + escapeHtml(c.file) + '</span></div>';
-        });
-        html += '</div>';
-      }
-      if (d.log && d.log.length) {
-        html += '<div class="git-section"><div class="git-section-title"><i class="fas fa-history"></i> Recent Commits</div>';
-        d.log.forEach(function(c) {
-          html += '<div class="git-commit"><span class="git-hash">' + escapeHtml(c.hash) + '</span><span class="git-msg">' + escapeHtml(c.message) + '</span></div>';
-        });
-        html += '</div>';
-      }
-      if (d.branch === '(not a git repo)' || (!d.changes.length && (!d.log || !d.log.length))) {
-        html = '<div class="git-section"><div class="git-section-title"><i class="fas fa-code-branch"></i> Branch</div>';
-        html += '<div class="git-branch"><i class="fas fa-code-branch"></i> ' + escapeHtml(d.branch) + '</div></div>';
-        if (!d.changes.length && (!d.log || !d.log.length)) {
-          html += '<div class="search-empty"><i class="fas fa-code-branch"></i><p>No changes or commits yet</p></div>';
-        }
-      }
-      body.innerHTML = html;
-    })
-    .catch(function(err) {
-      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-    });
-}
-
-// ─── Search in Files ────────────────────────────────────────────────────────
-
-var searchTimer = null;
-
-document.querySelector('.pane-tab[data-tab="search-results"]').addEventListener('click', function() {
-  if (!window._lastSearchResults) {
-    document.getElementById('search-results-body').innerHTML =
-      '<div class="search-empty"><i class="fas fa-search"></i><p>Use the search bar in the topbar to search files</p></div>';
-    return;
-  }
-  renderSearchResults(window._lastSearchResults, window._lastSearchQuery);
-});
-
-function doFileSearch(query) {
-  window._lastSearchQuery = query;
-  var body = document.getElementById('search-results-body');
-  if (!query || query.length < 2) {
-    body.innerHTML = '<div class="search-empty"><i class="fas fa-search"></i><p>Type at least 2 characters</p></div>';
-    window._lastSearchResults = null;
-    return;
-  }
-  body.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Searching...</div>';
-  switchPaneTab('search-results');
-  api('/api/search?q=' + encodeURIComponent(query))
-    .then(function(data) {
-      window._lastSearchResults = data.results || [];
-      renderSearchResults(window._lastSearchResults, query);
-    })
-    .catch(function(err) {
-      body.innerHTML = '<div class="search-empty"><i class="fas fa-exclamation-circle"></i><p>' + escapeHtml(err.message) + '</p></div>';
-    });
-}
-
-function renderSearchResults(results, query) {
-  var body = document.getElementById('search-results-body');
-  if (!results || !results.length) {
-    body.innerHTML = '<div class="search-empty"><i class="fas fa-search"></i><p>No results for "' + escapeHtml(query) + '"</p></div>';
-    return;
-  }
-  var html = '<div style="margin-bottom:8px;font-size:0.78rem;color:var(--text-muted)">' + results.length + ' result' + (results.length > 1 ? 's' : '') + ' for <strong>' + escapeHtml(query) + '</strong></div>';
-  results.forEach(function(r) {
-    var highlighted = escapeHtml(r.match).replace(new RegExp(escapeHtml(query), 'gi'), function(m) { return '<mark>' + m + '</mark>'; });
-    html += '<div class="search-result-item" data-file="' + escapeHtml(r.file) + '" data-line="' + r.line + '">' +
-      '<div><span class="search-result-file">' + escapeHtml(r.file) + '</span><span class="search-result-line">:' + r.line + '</span></div>' +
-      '<div class="search-result-match">' + highlighted + '</div></div>';
-  });
-  body.innerHTML = html;
-  body.querySelectorAll('.search-result-item').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var file = this.dataset.file;
-      var line = parseInt(this.dataset.line, 10);
-      var filePath = file;
-      api('/api/file?path=' + encodeURIComponent(filePath)).then(function(data) {
-        state.currentPath = '/' + file.split('/').slice(0, -1).join('/');
-        state.items = [];
-        openEditor(data.name);
-      }).catch(function(err) {
-        toast('Cannot open: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-      });
-    });
-  });
-}
+// ─── Pane Tab Switching (shared across modules) ───────────────────────────
 
 function switchPaneTab(tab) {
+  // Warn on unsaved editor changes
   if (state.editorInstance && typeof state.editorInstance.getValue === 'function' &&
       state.editorInstance.getValue() !== state.editingOriginalContent) {
     if (!confirm('You have unsaved changes in the editor. Switch tabs?')) return;
   }
+
+  // Warn on running terminal process
+  if (processIndicator && processIndicator.style.display !== 'none' && tab !== 'terminal') {
+    if (!confirm('A terminal process may still be running. Switch tabs?')) return;
+  }
+
   document.querySelectorAll('.pane-tab').forEach(function(t) { t.classList.remove('active'); });
   var target = document.querySelector('.pane-tab[data-tab="' + tab + '"]');
   if (target) target.classList.add('active');
+
   var containers = {
     terminal: 'terminal-container',
     'quick-actions': 'quick-actions-container',
@@ -1546,649 +88,107 @@ function switchPaneTab(tab) {
     var el = document.getElementById(containers[key]);
     if (el) el.style.display = key === tab ? (key === 'terminal' ? 'flex' : 'block') : 'none';
   });
-  if (tab === 'desktop') activateDesktop();
-}
 
-// ─── Desktop / VNC ──────────────────────────────────────────────────────────
-
-var desktopActivated = false;
-var installWs = null;
-
-function activateDesktop() {
-  if (desktopActivated) return;
-  desktopActivated = true;
-
-  var logContent = document.getElementById('install-log-content');
-  var installView = document.getElementById('desktop-install');
-  var dot = document.getElementById('desktop-dot');
-  var statusText = document.getElementById('desktop-status-text');
-  var progressFill = document.getElementById('install-progress-fill');
-  var progressLabel = document.getElementById('install-progress-label');
-  var elapsedEl = document.getElementById('install-elapsed');
-  var retryBtn = document.getElementById('install-retry-btn');
-  var subtitle = document.getElementById('install-subtitle');
-  var installStart = Date.now();
-  var elapsedTimer = null;
-  var currentStep = 0;
-  var totalSteps = 4;
-
-  function setStatus(state, msg) {
-    dot.className = 'status-dot ' + state;
-    statusText.textContent = msg;
-  }
-
-  function updateElapsed() {
-    var sec = Math.floor((Date.now() - installStart) / 1000);
-    var m = Math.floor(sec / 60);
-    var s = sec % 60;
-    elapsedEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  }
-
-  function appendLog(text) {
-    logContent.textContent += text;
-    logContent.scrollTop = logContent.scrollHeight;
-    // Parse step markers from install script output
-    var stepMatch = text.match(/\[(\d+)\/(\d+)\]/);
-    if (stepMatch) {
-      currentStep = parseInt(stepMatch[1], 10);
-      totalSteps = parseInt(stepMatch[2], 10);
-      var pct = Math.round((currentStep / totalSteps) * 100);
-      if (progressFill) progressFill.style.width = Math.min(pct, 95) + '%';
-      var stepNames = ['', 'Updating packages', 'Installing desktop', 'Setting up VNC', 'Finalizing'];
-      var name = stepNames[currentStep] || 'Installing...';
-      if (progressLabel) progressLabel.textContent = name;
-      if (subtitle) subtitle.textContent = 'Step ' + currentStep + ' of ' + totalSteps + ': ' + name;
-    }
-    if (text.indexOf('[DONE]') !== -1) {
-      if (progressFill) progressFill.style.width = '100%';
-      if (progressLabel) progressLabel.textContent = 'Installation complete';
-      if (subtitle) subtitle.textContent = 'Starting desktop...';
-    }
-    if (text.indexOf('[ERROR]') !== -1) {
-      if (progressFill) progressFill.style.background = 'var(--danger)';
-      if (progressLabel) progressLabel.textContent = 'Failed';
-      if (retryBtn) retryBtn.style.display = 'inline-flex';
-    }
-  }
-
-  setStatus('connecting', 'Installing desktop...');
-  appendLog('Connecting to installation service...\n');
-  updateElapsed();
-  elapsedTimer = setInterval(updateElapsed, 1000);
-
-  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var token = getSessionToken();
-  var url = protocol + '//' + location.host + '/install/';
-
-  installWs = new WebSocket(url);
-  installWs.onopen = function() {
-    if (token) installWs.send(JSON.stringify({ type: 'auth', token: token }));
-  };
-
-  installWs.onmessage = function(event) {
-    var msg = JSON.parse(event.data);
-    if (msg.type === 'log') {
-      appendLog(msg.data);
-    }
-  };
-
-  installWs.onclose = function() {
-    clearInterval(elapsedTimer);
-    setStatus('connecting', 'Checking installation status...');
-    appendLog('\n[Connection closed. Checking if desktop is ready...]\n');
-
-    setTimeout(function() {
-      var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      var token = getSessionToken();
-      var testUrl = protocol + '//' + location.host + '/vnc/?token=' + encodeURIComponent(token || '');
-      var retries = 0;
-      var maxRetries = 90;
-      var retryDelay = 3000;
-      var probeStart = Date.now();
-
-      function setProbeStatus(msg) {
-        setStatus('connecting', msg);
-        if (subtitle) subtitle.textContent = msg;
-      }
-
-      function probeVnc() {
-        var elapsedProbe = Math.floor((Date.now() - probeStart) / 1000);
-        var pct = Math.min(95 + Math.round((retries / maxRetries) * 5), 99);
-        if (progressFill) progressFill.style.width = pct + '%';
-        if (progressLabel) progressLabel.textContent = 'Waiting for VNC (' + (retries + 1) + '/' + maxRetries + ')';
-        if (elapsedEl) elapsedEl.textContent = formatTime(Math.floor((Date.now() - installStart) / 1000));
-        setProbeStatus('Starting desktop... (' + (retries + 1) + '/' + maxRetries + ')');
-        var testWs = new WebSocket(testUrl);
-        var done = false;
-
-        function fail() {
-          if (done) return;
-          done = true;
-          testWs.close();
-          retries++;
-          if (retries < maxRetries) {
-            appendLog('[Desktop not ready yet, retrying in ' + (retryDelay / 1000) + 's...]\n');
-            setTimeout(probeVnc, retryDelay / 2);
-          } else {
-            appendLog('\n[Desktop is not available after ' + maxRetries + ' attempts.]\n');
-            setStatus('error', 'Desktop unavailable');
-            if (progressLabel) progressLabel.textContent = 'Failed';
-            if (subtitle) subtitle.textContent = 'Desktop failed to start. Click Retry.';
-            if (retryBtn) retryBtn.style.display = 'inline-flex';
-            desktopActivated = false;
-          }
-        }
-
-        function succeed() {
-          if (done) return;
-          done = true;
-          testWs.close();
-          clearInterval(elapsedTimer);
-          setStatus('connected', 'Desktop ready');
-          if (progressFill) progressFill.style.width = '100%';
-          if (progressLabel) progressLabel.textContent = 'Desktop ready';
-          if (subtitle) subtitle.textContent = 'Desktop is running!';
-          appendLog('[Desktop connection established]\n');
-          installView.style.display = 'none';
-          var openBtn = document.getElementById('desktop-open-tab');
-          openBtn.style.display = 'inline-flex';
-          openBtn.click();
-        }
-
-        testWs.onmessage = function() { succeed(); };
-        testWs.onerror = function() { fail(); };
-        testWs.onclose = function() { fail(); };
-      }
-
-      probeVnc();
-    }, 1000);
-  };
-
-  installWs.onerror = function() {
-    clearInterval(elapsedTimer);
-    appendLog('\n[Failed to connect to installation service]\n');
-    setStatus('error', 'Connection failed');
-    if (progressLabel) progressLabel.textContent = 'Connection failed';
-    if (retryBtn) retryBtn.style.display = 'inline-flex';
-    desktopActivated = false;
-  };
-
-  // Retry button resets and re-activates
-  if (retryBtn) {
-    retryBtn.addEventListener('click', function() {
-      retryBtn.style.display = 'none';
-      if (progressFill) {
-        progressFill.style.width = '0%';
-        progressFill.style.background = '';
-      }
-      if (progressLabel) progressLabel.textContent = 'Starting...';
-      if (elapsedEl) elapsedEl.textContent = '—';
-      if (subtitle) subtitle.textContent = 'Xfce desktop is being installed on the server. This may take 1-3 minutes...';
-      desktopActivated = false;
-      if (installWs) { try { installWs.close(); } catch (e) {} }
-      logContent.textContent = 'Restarting installation...\n';
-      activateDesktop();
-    });
-  }
-}
-
-function formatTime(sec) {
-  var m = Math.floor(sec / 60);
-  var s = sec % 60;
-  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-}
-
-document.getElementById('desktop-open-tab').addEventListener('click', function() {
-  var token = getSessionToken();
-  var wsPath = token ? 'vnc/?token=' + encodeURIComponent(token) : 'vnc/';
-  var params = new URLSearchParams({
-    host: location.hostname,
-    port: location.protocol === 'https:' ? 443 : 80,
-    path: wsPath,
-    encrypt: location.protocol === 'https:' ? 1 : 0,
-    autoconnect: 1,
-    reconnect: 5,
-  });
-  window.open('/novnc/vnc.html?' + params.toString(), '_blank');
-});
-
-// ─── Update Notifications ──────────────────────────────────────────────────
-
-function initUpdateChecker() {
-  var topbar = document.querySelector('.topbar');
-  if (!topbar) return;
-
-  var banner = document.createElement('div');
-  banner.className = 'update-banner';
-  banner.innerHTML =
-    '<div class="update-banner-body">' +
-      '<i class="fas fa-arrow-up-from-bracket"></i>' +
-      '<span class="update-banner-summary"></span>' +
-      '<span class="update-banner-toggle">show details <i class="fas fa-chevron-down"></i></span>' +
-    '</div>' +
-    '<div class="update-banner-commits"></div>' +
-    '<button class="update-banner-btn"><i class="fas fa-rotate"></i> Update</button>';
-  topbar.insertAdjacentElement('afterend', banner);
-
-  var bodyEl = banner.querySelector('.update-banner-body');
-  var summaryEl = banner.querySelector('.update-banner-summary');
-  var toggleEl = banner.querySelector('.update-banner-toggle');
-  var commitsEl = banner.querySelector('.update-banner-commits');
-  var btnEl = banner.querySelector('.update-banner-btn');
-  var previousCount = 0;
-
-  bodyEl.addEventListener('click', function() {
-    commitsEl.classList.toggle('open');
-    toggleEl.innerHTML = commitsEl.classList.contains('open')
-      ? 'hide details <i class="fas fa-chevron-up"></i>'
-      : 'show details <i class="fas fa-chevron-down"></i>';
-  });
-
-  btnEl.addEventListener('click', function() {
-    btnEl.disabled = true;
-    btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-    api('/api/update', { method: 'POST' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) { toast(d.message || 'Update started'); })
-      .catch(function() { btnEl.disabled = false; btnEl.innerHTML = '<i class="fas fa-rotate"></i> Update'; });
-  });
-
-  function escapeHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-
-  function poll() {
-    fetch('/api/update-status', { headers: { 'x-session-token': getSessionToken() } })
-      .then(function(r) { return r.json(); })
-      .then(function(status) {
-        if (status.count > 0) {
-          var newCount = status.count;
-          summaryEl.textContent = newCount + ' new commit' + (newCount > 1 ? 's' : '') + ' available';
-
-          if (newCount !== previousCount) {
-            commitsEl.innerHTML = '';
-            status.pending.forEach(function(c) {
-              var div = document.createElement('div');
-              div.className = 'update-banner-commit';
-              div.innerHTML =
-                '<div class="update-banner-commit-msg">' + escapeHtml(c.message) + '</div>' +
-                '<div class="update-banner-commit-hash">' + escapeHtml(c.hash) + '</div>';
-              if (c.files && c.files.length) {
-                var filesDiv = document.createElement('div');
-                filesDiv.className = 'update-banner-commit-files';
-                c.files.forEach(function(f) {
-                  var s = document.createElement('span');
-                  s.textContent = f;
-                  filesDiv.appendChild(s);
-                });
-                div.appendChild(filesDiv);
-              }
-              commitsEl.appendChild(div);
-            });
-            previousCount = newCount;
-          }
-
-          if (!banner.classList.contains('active')) {
-            banner.classList.add('active');
-          }
-        } else {
-          banner.classList.remove('active');
-          previousCount = 0;
-        }
-      })
-      .catch(function() {});
-  }
-
-  poll();
-  setInterval(poll, 10000);
-}
-
-initUpdateChecker();
-
-// ─── Command Palette ────────────────────────────────────────────────────────
-
-var paletteActions = [
-  { name: 'Search files...', desc: 'Filter current directory', icon: 'fa-search', action: function() { document.getElementById('search-toggle').click(); } },
-  { name: 'Search in files...', desc: 'Full-text search workspace', icon: 'fa-file-search', action: function() { document.getElementById('search-toggle').click(); } },
-  { name: 'New File', desc: 'Create a new file (Ctrl+N)', icon: 'fa-file-circle-plus', action: function() { showNewFile(); } },
-  { name: 'New Folder', desc: 'Create a new directory', icon: 'fa-folder-plus', action: function() { document.getElementById('new-dir-btn').click(); } },
-  { name: 'Upload File', desc: 'Upload files to current directory', icon: 'fa-upload', action: function() { document.getElementById('upload-btn').click(); } },
-  { name: 'Refresh', desc: 'Refresh file list (Ctrl+R)', icon: 'fa-arrows-rotate', action: function() { loadDir(state.currentPath); } },
-  { name: 'Toggle Theme', desc: 'Switch dark/light theme', icon: 'fa-palette', action: function() { themeToggle.click(); } },
-  { name: 'Quick Actions', desc: 'View and run quick commands', icon: 'fa-bolt', action: function() { switchPaneTab('quick-actions'); } },
-  { name: 'System Stats', desc: 'View disk, memory, CPU stats', icon: 'fa-chart-simple', action: function() { switchPaneTab('stats'); loadStats(); } },
-  { name: 'Git Status', desc: 'View git branch and changes', icon: 'fab fa-git-alt', action: function() { switchPaneTab('git'); loadGitStatus(); } },
-  { name: 'Keyboard Shortcuts', desc: 'View shortcut keys (?)', icon: 'fa-keyboard', action: function() { toggleHelp(); } },
-  { name: 'Kill & Stop Workflow', desc: 'Terminate all processes and exit', icon: 'fa-power-off', action: function() { document.getElementById('kill-btn').click(); } },
-];
-
-document.addEventListener('keydown', function(e) {
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
-    e.preventDefault();
-    togglePalette();
-  }
-});
-
-function togglePalette() {
-  var overlay = document.getElementById('cmd-palette');
-  var isActive = overlay.classList.contains('active');
-  overlay.classList.toggle('active');
-  if (!isActive) {
-    document.getElementById('cmd-palette-input').value = '';
-    document.getElementById('cmd-palette-results').innerHTML = '';
-    setTimeout(function() { document.getElementById('cmd-palette-input').focus(); }, 50);
-    renderPalette('');
-  }
-}
-
-document.getElementById('cmd-palette-input').addEventListener('input', function() {
-  renderPalette(this.value);
-});
-
-document.getElementById('cmd-palette-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') { togglePalette(); }
-  if (e.key === 'Enter') {
-    var active = document.querySelector('.cmd-palette-item.active');
-    if (active) { active.click(); togglePalette(); }
-  }
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    var items = document.querySelectorAll('.cmd-palette-item');
-    var active = document.querySelector('.cmd-palette-item.active');
-    if (active) { active.classList.remove('active'); }
-    var next = active ? active.nextElementSibling : items[0];
-    if (next) next.classList.add('active');
-    else if (items.length) items[0].classList.add('active');
-  }
-  if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    var items = document.querySelectorAll('.cmd-palette-item');
-    var active = document.querySelector('.cmd-palette-item.active');
-    if (active) { active.classList.remove('active'); }
-    var prev = active ? active.previousElementSibling : items[items.length - 1];
-    if (prev) prev.classList.add('active');
-    else if (items.length) items[items.length - 1].classList.add('active');
-  }
-});
-
-function renderPalette(query) {
-  var results = document.getElementById('cmd-palette-results');
-  var filtered = paletteActions;
-  if (query.trim()) {
-    var lower = query.toLowerCase();
-    filtered = paletteActions.filter(function(a) {
-      return a.name.toLowerCase().includes(lower) || a.desc.toLowerCase().includes(lower);
-    });
-  }
-  if (!filtered.length) {
-    results.innerHTML = '<div class="cmd-palette-empty">No commands found</div>';
-    return;
-  }
-  results.innerHTML = '';
-  filtered.forEach(function(action, idx) {
-    var item = document.createElement('div');
-    item.className = 'cmd-palette-item' + (idx === 0 ? ' active' : '');
-    item.innerHTML = '<i class="fas ' + action.icon + '"></i><span class="cmd-palette-name">' + escapeHtml(action.name) + '</span><span class="cmd-palette-desc">' + escapeHtml(action.desc) + '</span>';
-    item.addEventListener('click', function() { action.action(); togglePalette(); });
-    results.appendChild(item);
-  });
-}
-
-document.getElementById('cmd-palette').addEventListener('click', function(e) {
-  if (e.target === this) togglePalette();
-});
-
-// ─── Global Search (topbar) ─────────────────────────────────────────────────
-
-var globalSearchInput = document.getElementById('global-search-input');
-var globalSearchBar = document.getElementById('global-search-bar');
-
-globalSearchInput.addEventListener('input', function() {
-  var val = this.value.trim();
-  clearTimeout(searchTimer);
-  if (val.length >= 2) {
-    searchTimer = setTimeout(function() { doFileSearch(val); }, 400);
-  } else {
-    document.getElementById('search-results-body').innerHTML =
-      '<div class="search-empty"><i class="fas fa-search"></i><p>Type at least 2 characters</p></div>';
-  }
-});
-
-// ─── Context Menu: Archive / Extract ────────────────────────────────────────
-
-document.querySelectorAll('.context-menu-item[data-action="archive"]').forEach(function(el) {
-  el.addEventListener('click', function() {
-    var target = state.contextTarget;
-    if (!target) return;
-    hideContextMenu();
-    var archiveName = prompt('Archive name:', target.name + '.zip');
-    if (!archiveName) return;
-    if (!archiveName.endsWith('.zip')) archiveName += '.zip';
-    toast('Creating archive...', 'fa-file-zipper', 'var(--accent)');
-    api('/api/archive', {
-      method: 'POST',
-      body: JSON.stringify({ paths: [target.path], name: archiveName.replace('.zip', '') }),
-    }).then(function(data) {
-      toast('Created: ' + data.file, 'fa-file-zipper', 'var(--success)');
-      loadDir(state.currentPath);
-    }).catch(function(err) {
-      toast('Archive failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-    });
-  });
-});
-
-document.querySelectorAll('.context-menu-item[data-action="extract"]').forEach(function(el) {
-  el.addEventListener('click', function() {
-    var target = state.contextTarget;
-    if (!target) return;
-    hideContextMenu();
-    toast('Extracting...', 'fa-box-open', 'var(--accent)');
-    api('/api/extract', {
-      method: 'POST',
-      body: JSON.stringify({ path: target.path }),
-    }).then(function() {
-      toast('Extracted: ' + target.name, 'fa-box-open', 'var(--success)');
-      loadDir(state.currentPath);
-    }).catch(function(err) {
-      toast('Extract failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-    });
-  });
-});
-
-// ─── Drag to Move Files ─────────────────────────────────────────────────────
-
-document.addEventListener('dragstart', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li || li.classList.contains('parent-item')) return;
-  var path = li.dataset.path;
-  if (path) e.dataTransfer.setData('text/plain', path);
-});
-
-document.addEventListener('dragover', function(e) {
-  var li = e.target.closest('.file-item');
-  if (li && li.dataset.isDir === 'true' && !li.classList.contains('parent-item')) {
-    e.preventDefault();
-    li.classList.add('highlighted');
-  }
-});
-
-document.addEventListener('dragleave', function(e) {
-  var li = e.target.closest('.file-item');
-  if (li) li.classList.remove('highlighted');
-});
-
-document.addEventListener('drop', function(e) {
-  var li = e.target.closest('.file-item');
-  if (!li || li.dataset.isDir !== 'true' || li.classList.contains('parent-item')) return;
-  e.preventDefault();
-  li.classList.remove('highlighted');
-  var from = e.dataTransfer.getData('text/plain');
-  var toDir = li.dataset.path;
-  if (!from || !toDir) return;
-  var fileName = from.split('/').pop() || from.split('\\').pop();
-  var to = toDir + '/' + fileName;
-  if (from === to) return;
-  toast('Moving...', 'fa-arrows', 'var(--accent)');
-  dom.fileList.style.opacity = '0.5';
-  dom.fileList.style.pointerEvents = 'none';
-  api('/api/file/move', {
-    method: 'POST',
-    body: JSON.stringify({ from: from, to: to }),
-  }).then(function() {
-    dom.fileList.style.opacity = '';
-    dom.fileList.style.pointerEvents = '';
-    toast('Moved: ' + fileName, 'fa-arrows', 'var(--success)');
-    loadDir(state.currentPath);
-  }).catch(function(err) {
-    dom.fileList.style.opacity = '';
-    dom.fileList.style.pointerEvents = '';
-    toast('Move failed: ' + err.message, 'fa-circle-exclamation', 'var(--danger)');
-  });
-});
-
-// ─── Improvements ───────────────────────────────────────────────────────────
-
-// --- 1. Tunnel URL Display ---
-(function() {
-  var el = document.getElementById('tunnel-url');
-  var textEl = document.getElementById('tunnel-url-text');
-  if (!el) return;
-  function fetchTunnelUrl() {
-    fetch('/api/tunnel-url', { headers: { 'x-session-token': getSessionToken() } })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.url) {
-          textEl.textContent = d.url;
-          el.title = 'Click to copy: ' + d.url;
-        }
-      })
-      .catch(function() {});
-  }
-  fetchTunnelUrl();
-  setInterval(fetchTunnelUrl, 10000);
-  el.addEventListener('click', function() {
-    if (!textEl.textContent || textEl.textContent === 'Connecting...') return;
-    navigator.clipboard.writeText(textEl.textContent).then(function() {
-      toast('Tunnel URL copied to clipboard', 'fa-copy', 'var(--success)');
-    }).catch(function() {});
-  });
-})();
-
-// --- 2. Workspace Path Display ---
-(function() {
-  var el = document.getElementById('workspace-path');
-  if (!el) return;
-  fetch('/api/cwd', { headers: { 'x-session-token': getSessionToken() } })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      el.textContent = d.path || d.cwd || '';
-    })
-    .catch(function() {});
-})();
-
-// --- 3. Welcome Overlay ---
-(function() {
-  var overlay = document.getElementById('welcome-overlay');
-  var dismiss = document.getElementById('welcome-dismiss');
-  var workspaceEl = document.getElementById('welcome-workspace');
-  if (!overlay || !dismiss) return;
-  if (localStorage.getItem('wfs-welcome-dismissed')) {
-    overlay.style.display = 'none';
-  }
-  fetch('/api/cwd', { headers: { 'x-session-token': getSessionToken() } })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (workspaceEl) workspaceEl.textContent = 'Workspace: ' + (d.path || d.cwd || '');
-    }).catch(function() {});
-  dismiss.addEventListener('click', function() {
-    overlay.style.display = 'none';
-    localStorage.setItem('wfs-welcome-dismissed', '1');
-  });
-})();
-
-// --- 5. Image/PDF Preview ---
-var previewOverlay = document.getElementById('preview-overlay');
-var previewBody = document.getElementById('preview-body');
-var previewFilename = document.getElementById('preview-filename');
-var previewClose = document.getElementById('preview-close');
-
-function showPreview(fileName, filePath) {
-  if (!previewOverlay) return;
-  previewFilename.textContent = fileName;
-  var ext = getExtension(fileName);
-  previewBody.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i></div>';
-  var token = getSessionToken();
-  function loadPreview() {
-    var previewUrl = '/api/file?path=' + encodeURIComponent(filePath) + '&download=1';
-    return fetch(previewUrl, { headers: { 'x-session-token': token } })
-      .then(function(r) {
-        if (!r.ok) throw new Error('Failed to load');
-        return r.blob();
-      })
-      .then(function(blob) {
-        var url = URL.createObjectURL(blob);
-        previewBody.innerHTML = '';
-        if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'].indexOf(ext) !== -1) {
-          var img = document.createElement('img');
-          img.src = url;
-          img.alt = fileName;
-          img.onerror = function() { previewBody.innerHTML = '<div class="search-empty"><i class="fas fa-file-image"></i><p>Failed to load image</p></div>'; };
-          previewBody.appendChild(img);
-        } else if (ext === 'pdf') {
-          var iframe = document.createElement('iframe');
-          iframe.src = url;
-          iframe.title = fileName;
-          previewBody.appendChild(iframe);
-        } else if (['mp4', 'webm', 'ogg', 'mov'].indexOf(ext) !== -1) {
-          var video = document.createElement('video');
-          video.controls = true;
-          video.autoplay = true;
-          video.style.maxWidth = '100%';
-          video.style.maxHeight = '100%';
-          var source = document.createElement('source');
-          source.src = url;
-          source.type = 'video/' + ext;
-          video.appendChild(source);
-          previewBody.appendChild(video);
-        }
-      })
-      .catch(function() {
-        previewBody.innerHTML = '<div class="search-empty"><i class="fas fa-eye"></i><p>Preview not available. Open in editor instead.</p></div>';
-      });
-  }
-  loadPreview();
-  previewOverlay.style.display = 'flex';
-  var container = document.getElementById('terminal-container');
-  if (container) container.style.display = 'none';
-}
-
-if (previewClose) {
-  previewClose.addEventListener('click', function() {
+  // Close preview when switching tabs
+  var previewOverlay = document.getElementById('preview-overlay');
+  if (previewOverlay && previewOverlay.style.display === 'flex') {
     previewOverlay.style.display = 'none';
     var container = document.getElementById('terminal-container');
     if (container) container.style.display = 'flex';
-  });
+  }
+
+  if (tab === 'desktop') activateDesktop();
 }
 
-// Extend file open to show preview for image/video/PDF files
-var _previewExtensions = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'pdf', 'mp4', 'webm', 'ogg', 'mov'];
-// Save reference to original openEditor (from line 881)
-var _origOpenEditorFn = typeof openEditor === 'function' ? openEditor : null;
-// Override openEditor to intercept previewable files
-if (_origOpenEditorFn && previewOverlay) {
-  openEditor = function(fileName) {
-    var ext = getExtension(fileName);
-    if (_previewExtensions.indexOf(ext) !== -1) {
-      var filePath = joinPath(state.currentPath, fileName);
-      showPreview(fileName, filePath);
-      return;
+// ─── Init File Manager ──────────────────────────────────────────────────────
+
+initSearchSortEvents();
+initFileListEvents();
+initFileListNavigation();
+initViewToggle();
+initEditorEvents();
+initFileTabEvents();
+initUploadEvents();
+
+// ─── Init Context Menu (needs loadDir + openEditor) ───────────────────────
+
+initContextMenuEvents({ loadDir, openEditor });
+
+// ─── Init Palette (needs app-level callbacks) ──────────────────────────────
+
+var themeToggle = document.getElementById('theme-toggle');
+var killBtn = document.getElementById('kill-btn');
+
+initPaletteEvents({
+  showNewFile: showNewFile,
+  loadDir: loadDir,
+  toggleHelp: function() {
+    document.getElementById('help-modal').classList.toggle('active');
+  },
+  themeToggle: themeToggle,
+  switchPaneTab: switchPaneTab,
+  loadStats: loadStats,
+  loadGitStatus: loadGitStatus,
+  killBtnClick: function() { killBtn.click(); },
+});
+
+// ─── Init Quick Actions (needs switchPaneTab) ─────────────────────────────
+
+initQuickActionEvents(switchPaneTab);
+
+// ─── Init Stats & Git (tab clicks) ──────────────────────────────────────────
+
+initStatsEvents();
+initGitEvents();
+initSearchEvents(switchPaneTab);
+initDesktopEvents();
+
+// ─── Init UX Modules ────────────────────────────────────────────────────────
+
+initThemeToggle();
+initSessionTimer();
+initTunnelUrl();
+initWelcomeOverlay();
+initKillButton(loadDir);
+initLogout();
+initUpdateChecker();
+initDragDropMove(loadDir);
+initHotReload(loadDir);
+
+// ─── Patch openEditor with preview interception ───────────────────────────
+
+const patchedOpenEditor = initPreviewEvents(openEditor);
+const finalOpenEditor = patchedOpenEditor || openEditor;
+
+// ─── Init Keyboard Shortcuts (needs everything) ────────────────────────────
+
+initKeyboardShortcuts({
+  hideSearch: hideSearch,
+  toggleSearch: toggleSearch,
+  showNewFile: showNewFile,
+  loadDir: loadDir,
+  toggleHelp: function() {
+    document.getElementById('help-modal').classList.toggle('active');
+  },
+  togglePalette: function() {
+    document.getElementById('cmd-palette').classList.toggle('active');
+    if (document.getElementById('cmd-palette').classList.contains('active')) {
+      document.getElementById('cmd-palette-input').value = '';
+      document.getElementById('cmd-palette-results').innerHTML = '';
+      setTimeout(function() { document.getElementById('cmd-palette-input').focus(); }, 50);
     }
-    _origOpenEditorFn(fileName);
-  };
-}
+  },
+  hideContextMenu: function() {
+    dom.contextMenu.classList.remove('visible');
+    state.contextTarget = null;
+  },
+  startRename: startRename,
+  showDeleteConfirm: showDeleteConfirm,
+  openEditor: finalOpenEditor,
+});
 
-// --- 6. Terminal Theme Selector ---
+// ─── Terminal Theme Selector ──────────────────────────────────────────────
+
 (function() {
   var select = document.getElementById('terminal-theme-select');
   if (!select) return;
@@ -2202,171 +202,104 @@ if (_origOpenEditorFn && previewOverlay) {
   });
 })();
 
-function applyTerminalTheme(theme) {
-  var presets = window.termThemePresets;
-  if (!presets) return;
-  var t = presets[theme] || presets.default;
-  if (typeof term !== 'undefined' && term) {
-    try { term.setOption('theme', t); } catch (e) {}
-  }
-}
+// ─── Modal Close (generic) ─────────────────────────────────────────────────
 
-// --- 7. Quick Actions Command History ---
-var qaHistory = JSON.parse(localStorage.getItem('wfs-qa-history') || '[]');
-var historySection = document.getElementById('qa-history-section');
-var historyList = document.getElementById('qa-history-list');
-var historyClear = document.getElementById('qa-history-clear');
-
-function renderQaHistory() {
-  if (!historyList) return;
-  if (!qaHistory.length) {
-    historyList.innerHTML = '<div class="qa-history-empty"><i class="fas fa-clock-rotate-left"></i> No command history yet</div>';
-    if (historySection) historySection.style.display = 'none';
-    return;
-  }
-  if (historySection) historySection.style.display = 'block';
-  historyList.innerHTML = qaHistory.map(function(h, i) {
-    return '<div class="qa-history-item" data-idx="' + i + '">' +
-      '<span class="qa-history-name">' + escapeHtml(h.name) + '</span>' +
-      '<span class="qa-history-cmd">$ ' + escapeHtml(h.command) + '</span>' +
-      '<span class="qa-history-time">' + h.time + '</span>' +
-    '</div>';
-  }).join('');
-  historyList.querySelectorAll('.qa-history-item').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var idx = parseInt(this.dataset.idx, 10);
-      var entry = qaHistory[idx];
-      if (entry) {
-        toast('Executed: ' + entry.name, 'fa-clock-rotate-left', 'var(--accent)');
-        api('/api/quick-actions/run', {
-          method: 'POST',
-          body: JSON.stringify({ command: entry.command }),
-        }).then(function() {}).catch(function() {});
-      }
-    });
+document.querySelectorAll('.modal-close').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var overlay = this.closest('.modal-overlay');
+    if (overlay) overlay.classList.remove('active');
   });
-}
+});
 
-function addQaHistory(name, command) {
-  qaHistory.unshift({
-    name: name,
-    command: command,
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+document.getElementById('confirm-modal-close').addEventListener('click', function() {
+  dom.confirmModal.classList.remove('active');
+});
+
+document.getElementById('editor-modal-close').addEventListener('click', closeEditor);
+
+document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+  overlay.addEventListener('mousedown', function(e) {
+    if (e.target === overlay) overlay.classList.remove('active');
   });
-  if (qaHistory.length > 50) qaHistory = qaHistory.slice(0, 50);
-  localStorage.setItem('wfs-qa-history', JSON.stringify(qaHistory));
-  renderQaHistory();
-}
+});
 
-if (historyClear) {
-  historyClear.addEventListener('click', function() {
-    qaHistory = [];
-    localStorage.removeItem('wfs-qa-history');
-    renderQaHistory();
-  });
-}
+// ─── Theme-based Terminal Theme Sync ───────────────────────────────────────
 
-renderQaHistory();
+themeToggle.addEventListener('click', function() {
+  setTimeout(function() {
+    applyTerminalTheme(localStorage.getItem('wfs-terminal-theme') || 'default');
+  }, 100);
+});
 
-// Patch into runQuickAction
-var _origRunQa = runQuickAction;
-runQuickAction = function(action) {
-  addQaHistory(action.Command_Name, action.Command);
-  _origRunQa(action);
-};
+// ─── Refresh Button ────────────────────────────────────────────────────────
 
-// --- 8. Auto-refresh file list (fallback) ---
-(function() {
-  var refreshTimer = null;
-  function scheduleRefresh() {
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(function() {
-      if (document.getElementById('file-list').children.length === 0 && state.currentPath) {
-        loadDir(state.currentPath);
-      }
-    }, 30000);
-  }
-  scheduleRefresh();
-})();
+document.getElementById('refresh-btn').addEventListener('click', function() {
+  toast('Refreshing...', 'fa-rotate fa-spin', 'var(--accent)');
+  loadDir(state.currentPath);
+});
 
-// --- 9. Multi-file Selection (simplified) ---
-var multiSelectMode = false;
-var selectedFiles = [];
+// ─── Help Modal ────────────────────────────────────────────────────────────
 
-function toggleMultiSelect() {
-  multiSelectMode = !multiSelectMode;
-  document.getElementById('file-pane').classList.toggle('multi-select-mode', multiSelectMode);
-  if (!multiSelectMode) {
-    selectedFiles = [];
-  }
-}
+document.getElementById('help-btn').addEventListener('click', function() {
+  document.getElementById('help-modal').classList.toggle('active');
+});
+document.getElementById('help-modal-close').addEventListener('click', function() {
+  document.getElementById('help-modal').classList.remove('active');
+});
 
-// --- 10. Process Running Indicator ---
-var processIndicator = document.getElementById('process-indicator');
-var terminalActivityTimer = null;
+// ─── QA Add / New File / New Dir buttons ─────────────────────────────────
 
-function showProcessIndicator() {
-  if (processIndicator) processIndicator.style.display = 'inline-flex';
-  clearTimeout(terminalActivityTimer);
-  terminalActivityTimer = setTimeout(function() {
-    if (processIndicator) processIndicator.style.display = 'none';
-  }, 5000);
-}
+document.getElementById('qa-add-btn').addEventListener('click', function() {
+  document.getElementById('qa-name').value = '';
+  document.getElementById('qa-desc').value = '';
+  document.getElementById('qa-command').value = '';
+  document.getElementById('qa-modal').classList.add('active');
+  setTimeout(function() { document.getElementById('qa-name').focus(); }, 100);
+});
 
-// --- 11. Better Error Toasts ---
-function showErrorToast(message, details) {
-  var fullMsg = message;
-  if (details) fullMsg += ' — ' + details;
-  toast(fullMsg, 'fa-circle-exclamation', 'var(--danger)');
-}
+document.getElementById('qa-modal-close').addEventListener('click', function() {
+  document.getElementById('qa-modal').classList.remove('active');
+});
 
-// --- 12. Confirm on Unsaved Terminal Process ---
-var _origSwitchPaneTab = switchPaneTab;
-switchPaneTab = function(tab) {
-  if (processIndicator && processIndicator.style.display !== 'none' && tab !== 'terminal') {
-    if (!confirm('A terminal process may still be running. Switch tabs?')) return;
-  }
-  _origSwitchPaneTab(tab);
-};
+// ─── New File / Dir Buttons ────────────────────────────────────────────────
 
-// --- 13. Time-based Theme Sync for xterm when theme changes ---
-var _origThemeToggle = themeToggle;
-if (themeToggle) {
-  themeToggle.addEventListener('click', function() {
-    setTimeout(function() {
-      applyTerminalTheme(localStorage.getItem('wfs-terminal-theme') || 'default');
-    }, 100);
-  });
-}
+document.getElementById('new-file-btn').addEventListener('click', showNewFile);
 
-// ─── Watch for file changes (hot reload) ────────────────────────────────────
+document.getElementById('new-dir-btn').addEventListener('click', function() {
+  dom.newfileModal.classList.add('active');
+  document.getElementById('newfile-type').value = 'directory';
+  document.getElementById('newfile-name').value = '';
+  setTimeout(function() { document.getElementById('newfile-name').focus(); }, 100);
+});
+
+// ─── Workspace Path Display ───────────────────────────────────────────────
 
 (function() {
-  function connectWatch() {
-    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var token = getSessionToken();
-    var wsUrl = protocol + '//' + location.host + '/watch/';
-    var ws;
-    try {
-      ws = new WebSocket(wsUrl);
-      ws.onopen = function() {
-        if (token) ws.send(JSON.stringify({ type: 'auth', token: token }));
-      };
-      ws.onmessage = function() {
-        loadDir(state.currentPath);
-      };
-      ws.onclose = function() {
-        setTimeout(connectWatch, 3000);
-      };
-      ws.onerror = function() {
-        setTimeout(connectWatch, 5000);
-      };
-    } catch (e) {
-      setTimeout(connectWatch, 5000);
-    }
-  }
-  connectWatch();
+  var el = document.getElementById('workspace-path');
+  if (!el) return;
+  api('/api/cwd')
+    .then(function(d) {
+      el.textContent = d.path || d.cwd || '';
+    })
+    .catch(function() {});
 })();
+
+// ─── Welcome Dismiss ──────────────────────────────────────────────────────
+
+var dismiss = document.getElementById('welcome-dismiss');
+if (dismiss) {
+  dismiss.addEventListener('click', function() {
+    document.getElementById('welcome-overlay').style.display = 'none';
+    localStorage.setItem('wfs-welcome-dismissed', '1');
+  });
+}
+
+// ─── QA Runner Close ─────────────────────────────────────────────────────
+
+document.getElementById('qa-runner-close').addEventListener('click', closeRunner);
+document.getElementById('qa-runner-close-btn').addEventListener('click', closeRunner);
+
+// ─── Initial Load ─────────────────────────────────────────────────────────
 
 loadDir('/');
 switchFileTab('tree');
